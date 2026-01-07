@@ -119,6 +119,26 @@ function draw_sketch!(points, lines, selected, hovered, center, scale)
     ig.End()
 end
 
+function draw_toolbar!()
+    ig.Begin("Toolbar")
+    if ig.Button("Select")
+        @info "Tool: Select"
+    end
+    ig.SameLine()
+    if ig.Button("Point")
+        @info "Tool: Point"
+    end
+    ig.SameLine()
+    if ig.Button("Line")
+        @info "Tool: Line"
+    end
+    ig.SameLine()
+    if ig.Button("Circle")
+        @info "Tool: Circle"
+    end
+    ig.End()
+end
+
 """
     run(; window_size=(640, 480), window_title="CADSketchUI")
 
@@ -137,6 +157,7 @@ function run(; window_size=(640, 480), window_title="CADSketchUI")
     scale = Ref(80.0)
 
     ig.render(ctx; window_size=window_size, window_title=window_title) do
+        draw_toolbar!()
         draw_sketch!(points, lines, selected, hovered, center, scale)
     end
     return nothing
