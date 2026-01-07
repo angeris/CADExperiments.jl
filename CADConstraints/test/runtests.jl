@@ -353,8 +353,14 @@ end
     push!(sk, FixedPoint(p1, 1.0, 0.0))
 
     stats = solve!(sk; options=LOG_OPTIONS)
+    report = conflicts(sk, stats; tol=1e-3)
     @test residual_norm(stats) > 1e-2
     @test has_conflict(stats; tol=1e-3)
+    @test report.conflicted
+    @test report.residual_norm > 1e-2
+    @test !isempty(report.entries)
+    @test all(entry -> entry.kind == :FixedPoint, report.entries)
+    @test report.entries[1].norm >= report.entries[end].norm
 end
 
 @testset "conflicting line axes" begin
