@@ -1,5 +1,8 @@
 using Test
 using CADConstraints
+using SparseLNNS: Options
+
+const LOG_OPTIONS = Options(log=true)
 
 @testset "points + lines constraints" begin
     # Three points with a horizontal and vertical line; p2 should land at (2, 0).
@@ -16,7 +19,7 @@ using CADConstraints
     push!(sk, Horizontal(l1))
     push!(sk, Vertical(l2))
 
-    stats = solve!(sk)
+    stats = solve!(sk; options=LOG_OPTIONS)
     ix2, iy2 = 2 * (p2 - 1) + 1, 2 * (p2 - 1) + 2
     @test stats.status == :converged
     @test isapprox(sk.x[ix2], 2.0; atol=1e-8)
@@ -34,7 +37,7 @@ end
     push!(sk, Horizontal(l1))
     push!(sk, Distance(p1, p2, 5.0))
 
-    stats = solve!(sk)
+    stats = solve!(sk; options=LOG_OPTIONS)
     ix2, iy2 = 2 * (p2 - 1) + 1, 2 * (p2 - 1) + 2
     @test stats.status == :converged
     @test isapprox(abs(sk.x[ix2]), 5.0; atol=1e-8)
@@ -53,7 +56,7 @@ end
     push!(sk, Horizontal(l1))
     push!(sk, Diameter(c1, 10.0))
 
-    stats = solve!(sk)
+    stats = solve!(sk; options=LOG_OPTIONS)
     ixr, iyr = 2 * (rim - 1) + 1, 2 * (rim - 1) + 2
     @test stats.status == :converged
     @test isapprox(abs(sk.x[ixr]), 5.0; atol=1e-8)
@@ -68,7 +71,7 @@ end
     push!(sk, FixedPoint(p1, 0.0, 0.0))
     push!(sk, FixedPoint(p2, 2.0, 1.0))
 
-    stats = solve!(sk)
+    stats = solve!(sk; options=LOG_OPTIONS)
     @test stats.status == :converged
     old_problem = sk.problem
 
@@ -77,7 +80,7 @@ end
     @test sk.structure_dirty == false
     @test sk.value_dirty == true
 
-    stats = solve!(sk)
+    stats = solve!(sk; options=LOG_OPTIONS)
     @test stats.status == :converged
     @test sk.problem === old_problem
 end
@@ -115,7 +118,7 @@ end
     push!(sk, Parallel(l1, l3))
     push!(sk, Parallel(l2, l4))
 
-    stats = solve!(sk)
+    stats = solve!(sk; options=LOG_OPTIONS)
     @test stats.status == :converged
 
     ix3a, iy3a = 2 * (p3a - 1) + 1, 2 * (p3a - 1) + 2
