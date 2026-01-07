@@ -239,11 +239,11 @@ function solve!(state::State{T}, problem::Problem{T}, work::Workspace{T};
     stats.status = :running
 
     for iter in 1:options.max_iters
-        stats.iters = iter
         if converged(cost, gnorm, rnorm0, options)
             stats.status = :converged
             break
         end
+        stats.iters = iter
 
         compute_step!(work, problem, lambda, options)
 
