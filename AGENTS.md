@@ -37,3 +37,4 @@
 ## Commit & PR Guidelines
 - Use short, imperative commit messages.
 - PRs should describe the problem, the approach, and include tests/bench output when relevant.
+- When changing `SparseLNNS`, commit and push before updating the CADConstraints dependency, then run CADConstraints tests.
