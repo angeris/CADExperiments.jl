@@ -47,7 +47,7 @@ version = "1.11.0"
 
 [[deps.SparseLNNS]]
 deps = ["LinearAlgebra", "SparseArrays"]
-git-tree-sha1 = "5df969933c95e270797a4644ca2e925643f282db"
+git-tree-sha1 = "fb6f660e6d3aa6b499a81dba27a30ea0690f2808"
 repo-rev = "master"
 repo-subdir = "SparseLNNS"
 repo-url = "https://github.com/angeris/SparseLNNS.jl.git"
