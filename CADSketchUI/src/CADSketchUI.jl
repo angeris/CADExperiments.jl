@@ -4,6 +4,7 @@ import CImGui as ig
 import GLFW
 import ModernGL
 import CADConstraints
+import Printf: @sprintf
 
 export run
 
@@ -174,6 +175,36 @@ function draw_toolbar!()
     ig.End()
 end
 
+function draw_status_panel!(stats, report)
+    vp = unsafe_load(ig.GetMainViewport())
+    padding = 12.0f0
+    ig.SetNextWindowPos((vp.Pos.x + vp.Size.x - padding, vp.Pos.y + vp.Size.y - padding),
+                        ig.ImGuiCond_Always, (1.0f0, 1.0f0))
+    flags = ig.ImGuiWindowFlags_AlwaysAutoResize |
+            ig.ImGuiWindowFlags_NoResize |
+            ig.ImGuiWindowFlags_NoMove |
+            ig.ImGuiWindowFlags_NoCollapse |
+            ig.ImGuiWindowFlags_NoTitleBar
+    ig.Begin("Status", C_NULL, flags)
+
+    ok = stats.status == :converged
+    color = ok ? ig.ImVec4(0.20f0, 0.80f0, 0.35f0, 1.0f0) : ig.ImVec4(0.90f0, 0.25f0, 0.25f0, 1.0f0)
+    ig.TextColored(color, ok ? "Converged" : "Not Converged")
+    ig.TextUnformatted(@sprintf("iters: %d", stats.iters))
+    ig.TextUnformatted(@sprintf("cost: %.3e", stats.cost))
+    ig.TextUnformatted(@sprintf("residual: %.3e", report.residual_norm))
+
+    if report.conflicted && !isempty(report.entries)
+        ig.Separator()
+        ig.TextUnformatted("Top residuals")
+        for entry in report.entries
+            ig.TextUnformatted(@sprintf("%s #%d: %.3e", String(entry.kind), entry.index, entry.norm))
+        end
+    end
+
+    ig.End()
+end
+
 """
     run(; window_size=(640, 480), window_title="CADSketchUI")
 
@@ -205,6 +236,7 @@ function run(; window_size=(640, 480), window_title="CADSketchUI")
     push!(sketch, CADConstraints.Distance(p1, p2, d12))
     push!(sketch, CADConstraints.Distance(p2, p3, d23))
     stats = CADConstraints.solve!(sketch)
+    report = CADConstraints.conflicts(sketch, stats)
     @info "Initial solve" iters=stats.iters status=stats.status cost=stats.cost
     for idx in 1:point_count(sketch)
         x, y = point_xy(sketch, idx)
@@ -218,6 +250,7 @@ function run(; window_size=(640, 480), window_title="CADSketchUI")
     ig.render(ctx; window_size=window_size, window_title=window_title) do
         draw_sketch!(sketch, selected, hovered, center, scale)
         draw_toolbar!()
+        draw_status_panel!(stats, report)
     end
     return nothing
 end
