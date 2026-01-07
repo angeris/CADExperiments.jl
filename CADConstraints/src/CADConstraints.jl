@@ -8,6 +8,7 @@ import Base: push!
 export Shape, Constraint, Line, Circle, Arc
 export FixedPoint, Coincident, CircleCoincident, Horizontal, Vertical, Parallel, Distance, Diameter, Normal
 export Sketch, add_point!, set_point!, build_problem!, solve!
+export residual_norm, has_conflict
 
 abstract type Shape end
 abstract type Constraint end
@@ -710,6 +711,24 @@ function solve!(sketch::Sketch; options=Options())
     stats = SparseLNNS.solve!(sketch.state, sketch.problem, sketch.work; options=options)
     copyto!(sketch.x, sketch.state.x)
     return stats
+end
+
+"""
+    residual_norm(stats)
+
+Return the residual norm `sqrt(2 * cost)` from the last solve.
+"""
+function residual_norm(stats)
+    return sqrt(2 * stats.cost)
+end
+
+"""
+    has_conflict(stats; tol=1e-6)
+
+Return true if the residual norm exceeds `tol`, indicating inconsistent constraints.
+"""
+function has_conflict(stats; tol=1e-6)
+    return residual_norm(stats) > tol
 end
 
 end # module CADConstraints

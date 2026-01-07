@@ -343,3 +343,16 @@ end
     @test isapprox(sk.x[ixr], 5.0; atol=1e-6)
     @test isapprox(sk.x[iyr], 0.0; atol=1e-6)
 end
+
+@testset "conflicting constraints" begin
+    # A single point fixed at two different x-positions is inconsistent (residual stays nonzero).
+    sk = Sketch()
+    p1 = add_point!(sk, 0.0, 0.0)
+
+    push!(sk, FixedPoint(p1, 0.0, 0.0))
+    push!(sk, FixedPoint(p1, 1.0, 0.0))
+
+    stats = solve!(sk; options=LOG_OPTIONS)
+    @test residual_norm(stats) > 1e-2
+    @test has_conflict(stats; tol=1e-3)
+end
