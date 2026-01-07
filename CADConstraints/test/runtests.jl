@@ -356,3 +356,57 @@ end
     @test residual_norm(stats) > 1e-2
     @test has_conflict(stats; tol=1e-3)
 end
+
+@testset "conflicting line axes" begin
+    # Fixed endpoints at (0,0) and (1,1) cannot satisfy both horizontal and vertical constraints.
+    sk = Sketch()
+    p1 = add_point!(sk, 0.0, 0.0)
+    p2 = add_point!(sk, 1.0, 1.0)
+    l1 = push!(sk, Line(p1, p2))
+
+    push!(sk, FixedPoint(p1, 0.0, 0.0))
+    push!(sk, FixedPoint(p2, 1.0, 1.0))
+    push!(sk, Horizontal(l1))
+    push!(sk, Vertical(l1))
+
+    stats = solve!(sk; options=LOG_OPTIONS)
+    @test residual_norm(stats) > 1e-2
+    @test has_conflict(stats; tol=1e-3)
+end
+
+@testset "conflicting parallel lines" begin
+    # Two perpendicular fixed lines cannot be made parallel.
+    sk = Sketch()
+    p1 = add_point!(sk, 0.0, 0.0)
+    p2 = add_point!(sk, 1.0, 0.0)
+    p3 = add_point!(sk, 0.0, 0.0)
+    p4 = add_point!(sk, 0.0, 1.0)
+    l1 = push!(sk, Line(p1, p2))
+    l2 = push!(sk, Line(p3, p4))
+
+    push!(sk, FixedPoint(p1, 0.0, 0.0))
+    push!(sk, FixedPoint(p2, 1.0, 0.0))
+    push!(sk, FixedPoint(p3, 0.0, 0.0))
+    push!(sk, FixedPoint(p4, 0.0, 1.0))
+    push!(sk, Parallel(l1, l2))
+
+    stats = solve!(sk; options=LOG_OPTIONS)
+    @test residual_norm(stats) > 1e-2
+    @test has_conflict(stats; tol=1e-3)
+end
+
+@testset "conflicting diameter constraint" begin
+    # Fixed circle center/rim do not match the requested diameter.
+    sk = Sketch()
+    center = add_point!(sk, 0.0, 0.0)
+    rim = add_point!(sk, 1.0, 0.0)
+    c1 = push!(sk, Circle(center, rim))
+
+    push!(sk, FixedPoint(center, 0.0, 0.0))
+    push!(sk, FixedPoint(rim, 1.0, 0.0))
+    push!(sk, Diameter(c1, 10.0))
+
+    stats = solve!(sk; options=LOG_OPTIONS)
+    @test residual_norm(stats) > 1.0
+    @test has_conflict(stats; tol=1e-3)
+end
