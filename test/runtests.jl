@@ -1,6 +1,6 @@
 using Test
 using SparseArrays
-using NLLS
+using SparseLNNS
 
 @testset "basic nonlinear solves" begin
     # Solve r(x)=x-1=0 -> x=1 (single residual, linear).

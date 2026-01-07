@@ -1,4 +1,4 @@
-module NLLS
+module SparseLNNS
 
 using LinearAlgebra
 using SparseArrays
@@ -287,4 +287,4 @@ function solve!(state::State{T}, problem::Problem{T}, work::Workspace{T};
     return stats
 end
 
-end # module NLLS
+end # module SparseLNNS

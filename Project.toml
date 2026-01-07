@@ -1,4 +1,4 @@
-name = "NLLS"
+name = "SparseLNNS"
 uuid = "b84bb83e-6573-4c2d-b200-279579e5ce9b"
 authors = ["angeris <guille@angeris.net>"]
 version = "0.1.0"

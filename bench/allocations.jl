@@ -1,5 +1,5 @@
 using SparseArrays
-using NLLS
+using SparseLNNS
 
 r!(out, x) = (out[1] = x[1] - 1.0)
 function J!(J, x)

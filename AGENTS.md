@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 - `Project.toml` defines the Julia package and dependencies.
-- `src/NLLS.jl` holds the main module. Keep public APIs small and export only stable entry points.
+- `src/SparseLNNS.jl` holds the main module. Keep public APIs small and export only stable entry points.
 - Tests are not present yet; plan to add a `test/` directory with `runtests.jl` once solver logic lands.
 
 ## Build, Test, and Development Commands
