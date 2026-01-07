@@ -120,22 +120,47 @@ function draw_sketch!(points, lines, selected, hovered, center, scale)
 end
 
 function draw_toolbar!()
-    ig.Begin("Toolbar")
-    if ig.Button("Select")
-        @info "Tool: Select"
+    ig.SetNextWindowPos((10.0f0, 10.0f0), ig.ImGuiCond_FirstUseEver)
+    ig.SetNextWindowSize((180.0f0, 0.0f0), ig.ImGuiCond_FirstUseEver)
+    flags = ig.ImGuiWindowFlags_AlwaysAutoResize
+    ig.Begin("Tools", C_NULL, flags)
+    labels = ("Select", "Point", "Line", "Circle")
+    max_w = 0.0f0
+    max_h = 0.0f0
+    for label in labels
+        sz = ig.CalcTextSize(label)
+        max_w = max(max_w, sz.x)
+        max_h = max(max_h, sz.y)
     end
-    ig.SameLine()
-    if ig.Button("Point")
-        @info "Tool: Point"
+    style = unsafe_load(ig.GetStyle())
+    pad = style.FramePadding
+    button_w = max_w + 2.0f0 * pad.x
+    button_h = max_h + 2.0f0 * pad.y
+    button_size = (button_w, button_h)
+
+    ig.PushStyleVar(ig.ImGuiStyleVar_ButtonTextAlign, ig.ImVec2(0.5f0, 0.5f0))
+    if ig.BeginTable("tools_table", 2, ig.ImGuiTableFlags_SizingFixedFit)
+        ig.TableSetupColumn("col1", ig.ImGuiTableColumnFlags_WidthFixed, button_w)
+        ig.TableSetupColumn("col2", ig.ImGuiTableColumnFlags_WidthFixed, button_w)
+        ig.TableNextColumn()
+        if ig.Button("Select", button_size)
+            @info "Tool: Select"
+        end
+        ig.TableNextColumn()
+        if ig.Button("Point", button_size)
+            @info "Tool: Point"
+        end
+        ig.TableNextColumn()
+        if ig.Button("Line", button_size)
+            @info "Tool: Line"
+        end
+        ig.TableNextColumn()
+        if ig.Button("Circle", button_size)
+            @info "Tool: Circle"
+        end
+        ig.EndTable()
     end
-    ig.SameLine()
-    if ig.Button("Line")
-        @info "Tool: Line"
-    end
-    ig.SameLine()
-    if ig.Button("Circle")
-        @info "Tool: Circle"
-    end
+    ig.PopStyleVar()
     ig.End()
 end
 
@@ -157,8 +182,8 @@ function run(; window_size=(640, 480), window_title="CADSketchUI")
     scale = Ref(80.0)
 
     ig.render(ctx; window_size=window_size, window_title=window_title) do
-        draw_toolbar!()
         draw_sketch!(points, lines, selected, hovered, center, scale)
+        draw_toolbar!()
     end
     return nothing
 end
