@@ -95,6 +95,53 @@ end
     @test isapprox(state4.x[2], 1.0; atol=1e-5)
 end
 
+@testset "cad-inspired constraints" begin
+    # Fixed point (x1,y1)=(1,1), point2 on x-axis, and distance=2 to point1.
+    function r5!(out, x)
+        x1 = x[1]
+        y1 = x[2]
+        x2 = x[3]
+        y2 = x[4]
+        out[1] = x1 - 1.0
+        out[2] = y1 - 1.0
+        out[3] = y2
+        out[4] = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) - 4.0
+        return nothing
+    end
+    function J5!(J, x)
+        x1 = x[1]
+        y1 = x[2]
+        x2 = x[3]
+        y2 = x[4]
+        nz = nonzeros(J)
+        nz[1] = 1.0
+        nz[2] = 2.0 * (x1 - x2)
+        nz[3] = 1.0
+        nz[4] = 2.0 * (y1 - y2)
+        nz[5] = 2.0 * (x2 - x1)
+        nz[6] = 1.0
+        nz[7] = 2.0 * (y2 - y1)
+        return nothing
+    end
+    Jpat5 = spzeros(4, 4)
+    Jpat5[1, 1] = 1.0
+    Jpat5[4, 1] = 1.0
+    Jpat5[2, 2] = 1.0
+    Jpat5[4, 2] = 1.0
+    Jpat5[4, 3] = 1.0
+    Jpat5[3, 4] = 1.0
+    Jpat5[4, 4] = 1.0
+    prob5 = Problem(r5!, J5!, Jpat5)
+    state5, work5 = initialize(prob5, [0.8, 1.2, 2.6, 0.1])
+    stats5 = solve!(state5, prob5, work5)
+    x2_expected = 1.0 + sqrt(3.0)
+    @test stats5.status == :converged
+    @test isapprox(state5.x[1], 1.0; atol=1e-5)
+    @test isapprox(state5.x[2], 1.0; atol=1e-5)
+    @test isapprox(state5.x[3], x2_expected; atol=1e-5)
+    @test isapprox(state5.x[4], 0.0; atol=1e-5)
+end
+
 @testset "allocations" begin
     # Allocation check on the same linear residual r(x)=x-1 -> x=1.
     r!(out, x) = (out[1] = x[1] - 1.0)
