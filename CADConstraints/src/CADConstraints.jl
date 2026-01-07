@@ -399,7 +399,7 @@ function residual!(out, x, constraint::Distance, sketch, offset)
     ix2, iy2 = point_indices(constraint.p2)
     dx = x[ix2] - x[ix1]
     dy = x[iy2] - x[iy1]
-    out[offset + 1] = hypot(dx, dy) - constraint.d
+    out[offset + 1] = dx * dx + dy * dy - constraint.d * constraint.d
     return nothing
 end
 
@@ -409,7 +409,7 @@ function residual!(out, x, constraint::Radius, sketch, offset)
     ix2, iy2 = point_indices(rim)
     dx = x[ix2] - x[ix1]
     dy = x[iy2] - x[iy1]
-    out[offset + 1] = hypot(dx, dy) - constraint.r
+    out[offset + 1] = dx * dx + dy * dy - constraint.r * constraint.r
     return nothing
 end
 
@@ -475,15 +475,10 @@ function jacobian!(J, x, constraint::Distance, sketch, offset)
     ix2, iy2 = point_indices(constraint.p2)
     dx = x[ix2] - x[ix1]
     dy = x[iy2] - x[iy1]
-    dist = hypot(dx, dy)
-    if dist == 0
-        return nothing
-    end
-    inv = 1 / dist
-    J[offset + 1, ix1] = -dx * inv
-    J[offset + 1, iy1] = -dy * inv
-    J[offset + 1, ix2] = dx * inv
-    J[offset + 1, iy2] = dy * inv
+    J[offset + 1, ix1] = -2.0 * dx
+    J[offset + 1, iy1] = -2.0 * dy
+    J[offset + 1, ix2] = 2.0 * dx
+    J[offset + 1, iy2] = 2.0 * dy
     return nothing
 end
 
@@ -493,15 +488,10 @@ function jacobian!(J, x, constraint::Radius, sketch, offset)
     ix2, iy2 = point_indices(rim)
     dx = x[ix2] - x[ix1]
     dy = x[iy2] - x[iy1]
-    dist = hypot(dx, dy)
-    if dist == 0
-        return nothing
-    end
-    inv = 1 / dist
-    J[offset + 1, ix1] = -dx * inv
-    J[offset + 1, iy1] = -dy * inv
-    J[offset + 1, ix2] = dx * inv
-    J[offset + 1, iy2] = dy * inv
+    J[offset + 1, ix1] = -2.0 * dx
+    J[offset + 1, iy1] = -2.0 * dy
+    J[offset + 1, ix2] = 2.0 * dx
+    J[offset + 1, iy2] = 2.0 * dy
     return nothing
 end
 """

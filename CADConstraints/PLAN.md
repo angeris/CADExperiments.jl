@@ -23,6 +23,7 @@ Build a fast, allocation‑minimal CAD constraint solver for interactive use. St
    - Horizontal/vertical line segment.
    - Point on line segment (collinearity).
    - Parallel lines (line1 ∥ line2).
+   - Use squared distance residuals (no `hypot`) for smoothness and fast convergence.
 7) **Constraint API**
    - `add_point!` for points, and `push!(sketch, Line(...))` for shapes.
    - `push!(sketch, FixedPoint(...))`, `Coincident(...)`, `Parallel(...)`,
