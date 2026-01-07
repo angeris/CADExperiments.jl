@@ -64,38 +64,28 @@ end
     @test isapprox(sk.x[iyr], 0.0; atol=1e-8)
 end
 
-@testset "circle tangent constraint" begin
-    # Horizontal line tangent to a radius-2 circle should settle at y=2.
+@testset "circle coincident constraint" begin
+    # Point on a radius-2 circle constrained to the vertical line x=0.
     sk = Sketch()
     center = add_point!(sk, 0.0, 0.0)
     rim = add_point!(sk, 0.0, 2.0)
-    p1 = add_point!(sk, 3.0, 3.0)
-    p2 = add_point!(sk, 5.0, 3.0)
-    anchor1 = add_point!(sk, 3.0, 0.0)
-    anchor2 = add_point!(sk, 5.0, 0.0)
+    p1 = add_point!(sk, 0.2, 1.6)
+    anchor = add_point!(sk, 0.0, 0.0)
 
     c1 = push!(sk, Circle(center, rim))
-    l1 = push!(sk, Line(p1, p2))
-    l2 = push!(sk, Line(p1, anchor1))
-    l3 = push!(sk, Line(p2, anchor2))
+    l1 = push!(sk, Line(p1, anchor))
 
     push!(sk, FixedPoint(center, 0.0, 0.0))
     push!(sk, FixedPoint(rim, 0.0, 2.0))
-    push!(sk, FixedPoint(anchor1, 3.0, 0.0))
-    push!(sk, FixedPoint(anchor2, 5.0, 0.0))
-    push!(sk, Vertical(l2))
-    push!(sk, Vertical(l3))
-    push!(sk, Horizontal(l1))
-    push!(sk, Tangent(c1, l1))
+    push!(sk, FixedPoint(anchor, 0.0, 0.0))
+    push!(sk, Vertical(l1))
+    push!(sk, CircleCoincident(c1, p1))
 
     stats = solve!(sk; options=LOG_TIGHT_OPTIONS)
     ix1, iy1 = 2 * (p1 - 1) + 1, 2 * (p1 - 1) + 2
-    ix2, iy2 = 2 * (p2 - 1) + 1, 2 * (p2 - 1) + 2
     @test stats.status == :converged
-    @test isapprox(sk.x[ix1], 3.0; atol=1e-6)
-    @test isapprox(sk.x[ix2], 5.0; atol=1e-6)
+    @test isapprox(sk.x[ix1], 0.0; atol=1e-6)
     @test isapprox(sk.x[iy1], 2.0; atol=1e-6)
-    @test isapprox(sk.x[iy2], 2.0; atol=1e-6)
 end
 
 @testset "circle normal constraint" begin
