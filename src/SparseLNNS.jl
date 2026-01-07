@@ -7,6 +7,14 @@ using SparseArrays.SPQR
 
 export Problem, Options, State, Stats, Workspace, initialize, solve!
 
+"""
+    Problem(r!, J!, jac_pattern)
+
+Problem definition for sparse nonlinear least squares with a fixed Jacobian pattern.
+
+- `r!(out, x)` writes residuals into `out` (length `m`).
+- `J!(J, x)` fills Jacobian values in `J` using the sparsity of `jac_pattern`.
+"""
 struct Problem{T}
     r!::Function
     J!::Function
@@ -23,6 +31,11 @@ end
 Problem(r!, J!, jac_pattern::SparseMatrixCSC) =
     Problem(r!, J!, SparseMatrixCSC{Float64,Int}(jac_pattern))
 
+"""
+    Options(; kwargs...)
+
+Solver configuration: tolerances, iteration limits, damping bounds, and QR ordering.
+"""
 Base.@kwdef struct Options{T<:AbstractFloat}
     max_iters::Int = 50
     atol::T = T(1e-8)
@@ -35,6 +48,11 @@ Base.@kwdef struct Options{T<:AbstractFloat}
     ordering::Int32 = SPQR.ORDERING_DEFAULT
 end
 
+"""
+    Stats
+
+Iteration statistics updated by `solve!`.
+"""
 mutable struct Stats{T<:AbstractFloat}
     iters::Int
     cost::T
@@ -45,12 +63,22 @@ end
 
 Stats{T}() where {T<:AbstractFloat} = Stats{T}(0, T(Inf), T(Inf), T(Inf), :init)
 
+"""
+    State
+
+Mutable solver state: current parameters, damping value, and stats.
+"""
 mutable struct State{T<:AbstractFloat}
     x::Vector{T}
     lambda::T
     stats::Stats{T}
 end
 
+"""
+    Workspace
+
+Preallocated buffers used by the solver (residuals, Jacobian storage, steps, RHS).
+"""
 struct Workspace{T<:AbstractFloat}
     r::Vector{T}
     r_trial::Vector{T}
@@ -90,6 +118,12 @@ function build_augmented_pattern(jac_pattern::SparseMatrixCSC{T,Int}) where {T<:
     return A, diag_idx
 end
 
+"""
+    initialize(problem, x0; options=Options())
+
+Allocate solver state and workspace for `problem` starting at `x0`.
+Returns `(state, work)`; reuse both across solves to avoid allocations.
+"""
 function initialize(problem::Problem{T}, x0::AbstractVector;
         options::Options{T} = Options{T}()) where {T<:AbstractFloat}
     length(x0) == problem.n || throw(DimensionMismatch("x0 length must be $(problem.n)"))
@@ -221,6 +255,11 @@ function converged(cost::T, gnorm::T, rnorm0::T, options::Options{T}) where {T<:
     return gnorm <= options.gtol || rnorm <= options.atol + options.rtol * rnorm0
 end
 
+"""
+    solve!(state, problem, work; options=Options())
+
+Run the LM iterations in place. Updates `state.x` and `state.stats`, and returns `stats`.
+"""
 function solve!(state::State{T}, problem::Problem{T}, work::Workspace{T};
         options::Options{T} = Options{T}()) where {T<:AbstractFloat}
     x = state.x
