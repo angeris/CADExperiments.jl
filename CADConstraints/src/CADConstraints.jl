@@ -80,7 +80,6 @@ mutable struct Sketch
     x::Vector{Float64}
     lines::Vector{Line}
     constraints::Vector{Constraint}
-    m::Int
     structure_dirty::Bool
     problem::Problem
     state::State
@@ -102,7 +101,7 @@ end
 
 function Sketch()
     problem, state, work = empty_state_work()
-    return Sketch(Float64[], Line[], Constraint[], 0, true, problem, state, work)
+    return Sketch(Float64[], Line[], Constraint[], true, problem, state, work)
 end
 
 @inline function point_indices(p)
@@ -144,52 +143,44 @@ constraint_rows(::Horizontal) = 1
 constraint_rows(::Vertical) = 1
 constraint_rows(::Parallel) = 1
 
-function push!(sketch::Sketch, constraint::Constraint)
-    return push_constraint!(sketch, constraint)
-end
-
-function push_constraint!(sketch::Sketch, constraint::FixedPoint)
+function push!(sketch::Sketch, constraint::FixedPoint)
     push!(sketch.constraints, constraint)
-    sketch.m += constraint_rows(constraint)
     mark_dirty!(sketch)
     return constraint
 end
 
-function push_constraint!(sketch::Sketch, constraint::Coincident)
+function push!(sketch::Sketch, constraint::Coincident)
     if constraint.p1 == constraint.p2
         return constraint
     end
     push!(sketch.constraints, constraint)
-    sketch.m += constraint_rows(constraint)
     mark_dirty!(sketch)
     return constraint
 end
 
-function push_constraint!(sketch::Sketch, constraint::Horizontal)
+function push!(sketch::Sketch, constraint::Horizontal)
     p1, p2 = line_points(sketch, constraint.line)
     if p1 == p2
         push!(sketch, Coincident(p1, p2))
         return constraint
     end
     push!(sketch.constraints, constraint)
-    sketch.m += constraint_rows(constraint)
     mark_dirty!(sketch)
     return constraint
 end
 
-function push_constraint!(sketch::Sketch, constraint::Vertical)
+function push!(sketch::Sketch, constraint::Vertical)
     p1, p2 = line_points(sketch, constraint.line)
     if p1 == p2
         push!(sketch, Coincident(p1, p2))
         return constraint
     end
     push!(sketch.constraints, constraint)
-    sketch.m += constraint_rows(constraint)
     mark_dirty!(sketch)
     return constraint
 end
 
-function push_constraint!(sketch::Sketch, constraint::Parallel)
+function push!(sketch::Sketch, constraint::Parallel)
     p1, p2 = line_points(sketch, constraint.line1)
     p3, p4 = line_points(sketch, constraint.line2)
     if p1 == p2 || p3 == p4
@@ -202,7 +193,6 @@ function push_constraint!(sketch::Sketch, constraint::Parallel)
         return constraint
     end
     push!(sketch.constraints, constraint)
-    sketch.m += constraint_rows(constraint)
     mark_dirty!(sketch)
     return constraint
 end
@@ -369,7 +359,10 @@ end
 Construct a SparseLNNS problem from current constraints.
 """
 function build_problem!(sketch::Sketch)
-    m = sketch.m
+    m = 0
+    for constraint in sketch.constraints
+        m += constraint_rows(constraint)
+    end
     n = length(sketch.x)
     m > 0 || throw(ArgumentError("cannot build problem with no constraints"))
     n > 0 || throw(ArgumentError("cannot build problem with no points"))
