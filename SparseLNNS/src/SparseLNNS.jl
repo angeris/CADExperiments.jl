@@ -91,8 +91,9 @@ struct Workspace{T<:AbstractFloat}
     diag_idx::Vector{Int}
 end
 
-function build_augmented_pattern(jac_pattern::SparseMatrixCSC{T,Int}) where {T<:AbstractFloat}
+function build_augmented_pattern(jac_pattern)
     # Build the fixed sparsity pattern for [J; sqrt(lambda) * I].
+    T = eltype(jac_pattern)
     m, n = size(jac_pattern)
     colptrJ = getcolptr(jac_pattern)
     rowvalJ = rowvals(jac_pattern)
@@ -119,13 +120,16 @@ function build_augmented_pattern(jac_pattern::SparseMatrixCSC{T,Int}) where {T<:
 end
 
 """
-    initialize(problem, x0; options=Options())
+    initialize(problem, x0; options=nothing)
 
 Allocate solver state and workspace for `problem` starting at `x0`.
 Returns `(state, work)`; reuse both across solves to avoid allocations.
 """
-function initialize(problem::Problem{T}, x0::AbstractVector;
-        options::Options{T} = Options{T}()) where {T<:AbstractFloat}
+function initialize(problem::Problem, x0; options=nothing)
+    T = eltype(problem.jac_pattern)
+    if options === nothing
+        options = Options{T}()
+    end
     length(x0) == problem.n || throw(DimensionMismatch("x0 length must be $(problem.n)"))
     x = Vector{T}(x0)
     r = zeros(T, problem.m)
@@ -143,8 +147,9 @@ function initialize(problem::Problem{T}, x0::AbstractVector;
     return state, work
 end
 
-function grad_norm_inf(g::AbstractVector{T}) where {T<:AbstractFloat}
+function grad_norm_inf(g)
     # Infinity-norm of the gradient: max(|g_i|).
+    T = eltype(g)
     maxval = zero(T)
     @inbounds for i in eachindex(g)
         val = abs(g[i])
@@ -155,8 +160,7 @@ function grad_norm_inf(g::AbstractVector{T}) where {T<:AbstractFloat}
     return maxval
 end
 
-function update_augmented_values!(A::FixedSparseCSC{T,Int}, J::FixedSparseCSC{T,Int},
-        diag_idx::Vector{Int}, lambda::T) where {T<:AbstractFloat}
+function update_augmented_values!(A, J, diag_idx, lambda)
     # Copy J into the top block of A and write sqrt(lambda) on the diagonal block.
     a_nz = nonzeros(A)
     j_nz = nonzeros(J)
@@ -179,19 +183,20 @@ function update_augmented_values!(A::FixedSparseCSC{T,Int}, J::FixedSparseCSC{T,
     return nothing
 end
 
-function update_rhs!(b_aug::Vector{T}, r::Vector{T}, m::Int, n::Int) where {T<:AbstractFloat}
+function update_rhs!(b_aug, r, m, n)
     # Right-hand side for the augmented system [J; sqrt(lambda)I] * step = [-r; 0].
     @inbounds for i in 1:m
         b_aug[i] = -r[i]
     end
     @inbounds for i in 1:n
-        b_aug[m + i] = zero(T)
+        b_aug[m + i] = zero(eltype(b_aug))
     end
     return nothing
 end
 
-function evaluate_current!(work::Workspace{T}, problem::Problem{T}, x::Vector{T}) where {T<:AbstractFloat}
+function evaluate_current!(work::Workspace, problem::Problem, x)
     # Evaluate residual, Jacobian, cost, and gradient at the current x.
+    T = eltype(work.r)
     problem.r!(work.r, x)
     problem.J!(work.J, x)
     cost = T(0.5) * dot(work.r, work.r)
@@ -201,10 +206,10 @@ function evaluate_current!(work::Workspace{T}, problem::Problem{T}, x::Vector{T}
 end
 
 function compute_step!(
-        work::Workspace{T},
-        problem::Problem{T},
-        lambda::T,
-        options::Options{T}) where {T<:AbstractFloat}
+        work::Workspace,
+        problem::Problem,
+        lambda,
+        options)
     # Solve the damped least-squares subproblem via sparse QR.
     update_augmented_values!(work.A, work.J, work.diag_idx, lambda)
     update_rhs!(work.b_aug, work.r, problem.m, problem.n)
@@ -213,7 +218,7 @@ function compute_step!(
     return nothing
 end
 
-function trial_step!(work::Workspace{T}, x::Vector{T}) where {T<:AbstractFloat}
+function trial_step!(work::Workspace, x)
     # Form x_trial = x + step without allocating.
     @inbounds for i in eachindex(x)
         work.x_trial[i] = x[i] + work.step[i]
@@ -221,14 +226,16 @@ function trial_step!(work::Workspace{T}, x::Vector{T}) where {T<:AbstractFloat}
     return nothing
 end
 
-function evaluate_trial!(work::Workspace{T}, problem::Problem{T}) where {T<:AbstractFloat}
+function evaluate_trial!(work::Workspace, problem::Problem)
     # Compute trial residual and cost at x_trial.
+    T = eltype(work.r_trial)
     problem.r!(work.r_trial, work.x_trial)
     return T(0.5) * dot(work.r_trial, work.r_trial)
 end
 
-function predicted_reduction(g::Vector{T}, step::Vector{T}, lambda::T) where {T<:AbstractFloat}
+function predicted_reduction(g, step, lambda)
     # Quadratic model decrease for LM step.
+    T = eltype(step)
     pred = zero(T)
     @inbounds for i in eachindex(step)
         pred += step[i] * (lambda * step[i] - g[i])
@@ -237,10 +244,10 @@ function predicted_reduction(g::Vector{T}, step::Vector{T}, lambda::T) where {T<
 end
 
 function accept_trial!(
-        work::Workspace{T},
-        problem::Problem{T},
-        x::Vector{T},
-        cost_trial::T) where {T<:AbstractFloat}
+        work::Workspace,
+        problem::Problem,
+        x,
+        cost_trial)
     # Commit trial point and refresh Jacobian and gradient.
     copyto!(x, work.x_trial)
     copyto!(work.r, work.r_trial)
@@ -250,18 +257,21 @@ function accept_trial!(
     return cost_trial, gnorm
 end
 
-function converged(cost::T, gnorm::T, rnorm0::T, options::Options{T}) where {T<:AbstractFloat}
-    rnorm = sqrt(T(2) * cost)
+function converged(cost, gnorm, rnorm0, options)
+    rnorm = sqrt(2 * cost)
     return gnorm <= options.gtol || rnorm <= options.atol + options.rtol * rnorm0
 end
 
 """
-    solve!(state, problem, work; options=Options())
+    solve!(state, problem, work; options=nothing)
 
 Run the LM iterations in place. Updates `state.x` and `state.stats`, and returns `stats`.
 """
-function solve!(state::State{T}, problem::Problem{T}, work::Workspace{T};
-        options::Options{T} = Options{T}()) where {T<:AbstractFloat}
+function solve!(state::State, problem::Problem, work::Workspace; options=nothing)
+    if options === nothing
+        options = Options{eltype(state.x)}()
+    end
+    T = eltype(state.x)
     x = state.x
     g = work.g
     step = work.step
