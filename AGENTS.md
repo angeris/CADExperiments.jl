@@ -1,16 +1,17 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `Project.toml` defines the Julia package and stdlib deps.
-- `src/SparseLNNS.jl` contains the LM solver and types. Keep public exports minimal.
-- `test/runtests.jl` hosts unit tests (basic solves, Rosenbrock, CAD-inspired constraints, allocations).
-- `bench/` contains quick scripts for allocations and timing sanity checks.
+- `SparseLNNS/Project.toml` defines the solver package and stdlib deps.
+- `SparseLNNS/src/SparseLNNS.jl` contains the LM solver and types. Keep public exports minimal.
+- `SparseLNNS/test/runtests.jl` hosts unit tests (basic solves, Rosenbrock, CAD-inspired constraints, allocations).
+- `SparseLNNS/bench/` contains quick scripts for allocations and timing sanity checks.
+- `CADConstraints/` is the CAD constraints package (currently a minimal stub).
 
 ## Build, Test, and Development Commands
-- `julia --project -e 'using Pkg; Pkg.instantiate()'` sets up the environment.
-- `julia --project -e 'using Pkg; Pkg.test()'` runs the full test suite.
-- `julia --project bench/allocations.jl` reports per-call allocations.
-- `julia --project bench/linear_timing.jl` runs a 1000x1000 sparse linear timing check.
+- `julia --project=SparseLNNS -e 'using Pkg; Pkg.instantiate()'` sets up the solver environment.
+- `julia --project=SparseLNNS -e 'using Pkg; Pkg.test()'` runs solver tests.
+- `julia --project=SparseLNNS SparseLNNS/bench/allocations.jl` reports per-call allocations.
+- `julia --project=SparseLNNS SparseLNNS/bench/linear_timing.jl` runs a 1000x1000 sparse linear timing check.
 
 ## Coding Style & Naming Conventions
 - Use 4-space indentation, no tabs. Keep functions short and composable.

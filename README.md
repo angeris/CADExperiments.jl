@@ -2,15 +2,15 @@
 
 This repository hosts two Julia packages:
 
-- `packages/SparseLNNS`: sparse nonlinear least squares solver (Levenberg–Marquardt).
-- `packages/CADConstraints`: CAD‑style constraint system built on top of `SparseLNNS`.
+- `SparseLNNS`: sparse nonlinear least squares solver (Levenberg–Marquardt).
+- `CADConstraints`: CAD‑style constraint system built on top of `SparseLNNS`.
 
 ## Quick commands
 
 ```sh
 # SparseLNNS tests
-julia --project=packages/SparseLNNS -e 'using Pkg; Pkg.test()'
+julia --project=SparseLNNS -e 'using Pkg; Pkg.test()'
 
-# CADConstraints tests (develop SparseLNNS from the monorepo)
-julia --project=packages/CADConstraints -e 'using Pkg; Pkg.develop(path="../SparseLNNS"); Pkg.test()'
+# CADConstraints tests (pull SparseLNNS from the repo subdir)
+julia --project=CADConstraints -e 'using Pkg; Pkg.add(PackageSpec(url="https://github.com/angeris/SparseLNNS.jl.git", subdir="SparseLNNS")); Pkg.test()'
 ```
