@@ -52,7 +52,7 @@ function build_wiggle_sketch()
     return sk, p1a, 0.0, 0.0
 end
 
-function wiggle!(sketch, anchor, base_x, base_y, steps, options)
+function wiggle!(sketch, anchor, base_x, base_y, steps, options; print_stats=false)
     total_iters = 0
     max_iters = 0
     set_point!(sketch, anchor, base_x, base_y)
@@ -61,6 +61,9 @@ function wiggle!(sketch, anchor, base_x, base_y, steps, options)
         dy = 0.05 * cos(0.2 * k)
         set_point!(sketch, anchor, base_x + dx, base_y + dy)
         stats = solve!(sketch; options=options)
+        if print_stats
+            println("step ", k, " iters=", stats.iters, " status=", stats.status, " cost=", stats.cost)
+        end
         total_iters += stats.iters
         if stats.iters > max_iters
             max_iters = stats.iters
@@ -74,7 +77,7 @@ options = Options()
 solve!(sk; options=options) # warm up
 
 steps = 100
-alloc = @allocated wiggle!(sk, anchor, base_x, base_y, steps, options)
+alloc = @allocated wiggle!(sk, anchor, base_x, base_y, steps, options; print_stats=true)
 t = @elapsed begin
     total_iters, max_iters = wiggle!(sk, anchor, base_x, base_y, steps, options)
     println("wiggle steps: ", steps)

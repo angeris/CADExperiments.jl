@@ -251,16 +251,16 @@ end
 end
 
 @testset "complex sketch constraints" begin
-    # Rectangle with duplicated corner points tied by coincident + parallel constraints.
+    # Rectangle with duplicated corner points plus a circle point tied to the top edge.
     sk = Sketch()
-    p1a = add_point!(sk, -0.2, 0.1)
-    p1b = add_point!(sk, 0.1, -0.1)
-    p2a = add_point!(sk, 4.1, 0.2)
-    p2b = add_point!(sk, 3.9, -0.2)
-    p3a = add_point!(sk, 4.2, 3.1)
-    p3b = add_point!(sk, 3.8, 2.9)
-    p4a = add_point!(sk, -0.1, 3.2)
-    p4b = add_point!(sk, 0.2, 2.8)
+    p1a = add_point!(sk, 1.6, -0.9)
+    p1b = add_point!(sk, 0.6, -0.4)
+    p2a = add_point!(sk, 4.8, 0.9)
+    p2b = add_point!(sk, 4.2, -0.6)
+    p3a = add_point!(sk, 5.2, 3.8)
+    p3b = add_point!(sk, 4.6, 3.2)
+    p4a = add_point!(sk, 0.5, 3.9)
+    p4b = add_point!(sk, 1.2, 3.1)
 
     l1 = push!(sk, Line(p1a, p2a)) # bottom
     l2 = push!(sk, Line(p2b, p3a)) # right
@@ -283,12 +283,32 @@ end
     push!(sk, Parallel(l1, l3))
     push!(sk, Parallel(l2, l4))
 
+    # Circle point constrained to the top edge.
+    p5 = add_point!(sk, 2.2, 2.8)    # center
+    p6 = add_point!(sk, 2.4, -0.2)   # rim
+    p7 = add_point!(sk, 1.3, 2.4)    # point on circle
+    p8 = add_point!(sk, 1.0, -1.0)   # anchor for vertical line
+
+    c1 = push!(sk, Circle(p5, p6))
+    l5 = push!(sk, Line(p7, p8))
+    l6 = push!(sk, Line(p7, p3a))
+
+    push!(sk, FixedPoint(p5, 1.0, 1.0))
+    push!(sk, FixedPoint(p8, 1.0, -1.0))
+    push!(sk, Diameter(c1, 4.0))
+    push!(sk, Vertical(l5))
+    push!(sk, Horizontal(l6))
+    push!(sk, CircleCoincident(c1, p7))
+
     stats = solve!(sk; options=LOG_OPTIONS)
     @test stats.status == :converged
 
     ix3a, iy3a = 2 * (p3a - 1) + 1, 2 * (p3a - 1) + 2
     @test isapprox(sk.x[ix3a], 4.0; atol=1e-6)
     @test isapprox(sk.x[iy3a], 3.0; atol=1e-6)
+    ix7, iy7 = 2 * (p7 - 1) + 1, 2 * (p7 - 1) + 2
+    @test isapprox(sk.x[ix7], 1.0; atol=1e-6)
+    @test isapprox(sk.x[iy7], 3.0; atol=1e-6)
 
     for (pa, pb) in ((p1a, p1b), (p2a, p2b), (p3a, p3b), (p4a, p4b))
         ix1, iy1 = 2 * (pa - 1) + 1, 2 * (pa - 1) + 2
@@ -317,7 +337,7 @@ end
     push!(sk, Vertical(l1))
     push!(sk, Horizontal(l2))
 
-    stats = solve!(sk)
+    stats = solve!(sk; options=LOG_OPTIONS)
     ixr, iyr = 2 * (rim - 1) + 1, 2 * (rim - 1) + 2
     @test stats.status == :converged
     @test isapprox(sk.x[ixr], 5.0; atol=1e-6)
