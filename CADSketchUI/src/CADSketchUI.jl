@@ -185,11 +185,31 @@ function run(; window_size=(640, 480), window_title="CADSketchUI")
     ctx = ig.CreateContext()
 
     sketch = CADConstraints.Sketch()
-    p1 = CADConstraints.add_point!(sketch, -1.0, 0.0)
-    p2 = CADConstraints.add_point!(sketch, 1.0, 0.0)
-    p3 = CADConstraints.add_point!(sketch, 0.0, 1.2)
+    x1, y1 = -1.0, 0.0
+    x2, y2 = 1.0, 0.0
+    x3, y3 = 0.0, 1.2
+    p1 = CADConstraints.add_point!(sketch, x1, y1)
+    p2 = CADConstraints.add_point!(sketch, x2, y2)
+    p3 = CADConstraints.add_point!(sketch, x3, y3)
     push!(sketch, CADConstraints.Line(p1, p2))
     push!(sketch, CADConstraints.Line(p2, p3))
+    push!(sketch, CADConstraints.FixedPoint(p1, x1, y1))
+    push!(sketch, CADConstraints.Horizontal(1))
+    push!(sketch, CADConstraints.Vertical(2))
+    dx12 = x1 - x2
+    dy12 = y1 - y2
+    dx23 = x2 - x3
+    dy23 = y2 - y3
+    d12 = sqrt(dx12 * dx12 + dy12 * dy12)
+    d23 = sqrt(dx23 * dx23 + dy23 * dy23)
+    push!(sketch, CADConstraints.Distance(p1, p2, d12))
+    push!(sketch, CADConstraints.Distance(p2, p3, d23))
+    stats = CADConstraints.solve!(sketch)
+    @info "Initial solve" iters=stats.iters status=stats.status cost=stats.cost
+    for idx in 1:point_count(sketch)
+        x, y = point_xy(sketch, idx)
+        @info "Point" index=idx x y
+    end
     selected = Ref(0)
     hovered = Ref(0)
     center = Ref((0.0, 0.0))
