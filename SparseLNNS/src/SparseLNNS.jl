@@ -15,36 +15,33 @@ Problem definition for sparse nonlinear least squares with a fixed Jacobian patt
 - `r!(out, x)` writes residuals into `out` (length `m`).
 - `J!(J, x)` fills Jacobian values in `J` using the sparsity of `jac_pattern`.
 """
-struct Problem{T}
+struct Problem
     r!::Function
     J!::Function
     m::Int
     n::Int
-    jac_pattern::SparseMatrixCSC{T,Int}
+    jac_pattern::SparseMatrixCSC{Float64,Int}
 end
 
-function Problem(r!, J!, jac_pattern::SparseMatrixCSC{T,Int}) where {T<:AbstractFloat}
+function Problem(r!, J!, jac_pattern::SparseMatrixCSC{Float64,Int})
     m, n = size(jac_pattern)
-    return Problem{T}(r!, J!, m, n, jac_pattern)
+    return Problem(r!, J!, m, n, jac_pattern)
 end
-
-Problem(r!, J!, jac_pattern::SparseMatrixCSC) =
-    Problem(r!, J!, SparseMatrixCSC{Float64,Int}(jac_pattern))
 
 """
     Options(; kwargs...)
 
 Solver configuration: tolerances, iteration limits, damping bounds, and QR ordering.
 """
-Base.@kwdef struct Options{T<:AbstractFloat}
+Base.@kwdef struct Options
     max_iters::Int = 50
-    atol::T = T(1e-8)
-    rtol::T = T(1e-8)
-    gtol::T = T(1e-8)
-    step_tol::T = T(1e-12)
-    lambda_init::T = T(1e-3)
-    lambda_min::T = T(1e-12)
-    lambda_max::T = T(1e12)
+    atol::Float64 = 1e-8
+    rtol::Float64 = 1e-8
+    gtol::Float64 = 1e-8
+    step_tol::Float64 = 1e-12
+    lambda_init::Float64 = 1e-3
+    lambda_min::Float64 = 1e-12
+    lambda_max::Float64 = 1e12
     ordering::Int32 = SPQR.ORDERING_DEFAULT
 end
 
@@ -53,25 +50,25 @@ end
 
 Iteration statistics updated by `solve!`.
 """
-mutable struct Stats{T<:AbstractFloat}
+mutable struct Stats
     iters::Int
-    cost::T
-    grad_norm::T
-    step_norm::T
+    cost::Float64
+    grad_norm::Float64
+    step_norm::Float64
     status::Symbol
 end
 
-Stats{T}() where {T<:AbstractFloat} = Stats{T}(0, T(Inf), T(Inf), T(Inf), :init)
+Stats() = Stats(0, Inf, Inf, Inf, :init)
 
 """
     State
 
 Mutable solver state: current parameters, damping value, and stats.
 """
-mutable struct State{T<:AbstractFloat}
-    x::Vector{T}
-    lambda::T
-    stats::Stats{T}
+mutable struct State
+    x::Vector{Float64}
+    lambda::Float64
+    stats::Stats
 end
 
 """
@@ -79,21 +76,20 @@ end
 
 Preallocated buffers used by the solver (residuals, Jacobian storage, steps, RHS).
 """
-struct Workspace{T<:AbstractFloat}
-    r::Vector{T}
-    r_trial::Vector{T}
-    J::FixedSparseCSC{T,Int}
-    A::FixedSparseCSC{T,Int}
-    g::Vector{T}
-    step::Vector{T}
-    x_trial::Vector{T}
-    b_aug::Vector{T}
+struct Workspace
+    r::Vector{Float64}
+    r_trial::Vector{Float64}
+    J::FixedSparseCSC{Float64,Int}
+    A::FixedSparseCSC{Float64,Int}
+    g::Vector{Float64}
+    step::Vector{Float64}
+    x_trial::Vector{Float64}
+    b_aug::Vector{Float64}
     diag_idx::Vector{Int}
 end
 
-function build_augmented_pattern(jac_pattern)
+function build_augmented_pattern(jac_pattern::SparseMatrixCSC{Float64,Int})
     # Build the fixed sparsity pattern for [J; sqrt(lambda) * I].
-    T = eltype(jac_pattern)
     m, n = size(jac_pattern)
     colptrJ = getcolptr(jac_pattern)
     rowvalJ = rowvals(jac_pattern)
@@ -114,43 +110,41 @@ function build_augmented_pattern(jac_pattern)
         idx += 1
     end
     colptrA[n + 1] = idx
-    nzvalA = zeros(T, nnzJ + n)
+    nzvalA = zeros(Float64, nnzJ + n)
     A = FixedSparseCSC(m + n, n, colptrA, rowvalA, nzvalA)
     return A, diag_idx
 end
 
 """
-    initialize(problem, x0; options=nothing)
+    initialize(problem, x0; options=Options())
 
 Allocate solver state and workspace for `problem` starting at `x0`.
 Returns `(state, work)`; reuse both across solves to avoid allocations.
 """
-function initialize(problem::Problem, x0; options=nothing)
-    T = eltype(problem.jac_pattern)
-    if options === nothing
-        options = Options{T}()
-    end
+function initialize(problem::Problem, x0; options=Options())
     length(x0) == problem.n || throw(DimensionMismatch("x0 length must be $(problem.n)"))
-    x = Vector{T}(x0)
-    r = zeros(T, problem.m)
+    x = Vector{Float64}(undef, problem.n)
+    @inbounds for i in eachindex(x)
+        x[i] = x0[i]
+    end
+    r = zeros(Float64, problem.m)
     r_trial = similar(r)
     pattern = problem.jac_pattern
-    J = FixedSparseCSC(problem.m, problem.n, getcolptr(pattern), rowvals(pattern), zeros(T, nnz(pattern)))
+    J = FixedSparseCSC(problem.m, problem.n, getcolptr(pattern), rowvals(pattern), zeros(Float64, nnz(pattern)))
     A, diag_idx = build_augmented_pattern(pattern)
-    g = zeros(T, problem.n)
-    step = zeros(T, problem.n)
+    g = zeros(Float64, problem.n)
+    step = zeros(Float64, problem.n)
     x_trial = similar(x)
-    b_aug = zeros(T, problem.m + problem.n)
+    b_aug = zeros(Float64, problem.m + problem.n)
     work = Workspace(r, r_trial, J, A, g, step, x_trial, b_aug, diag_idx)
-    stats = Stats{T}()
-    state = State{T}(x, options.lambda_init, stats)
+    stats = Stats()
+    state = State(x, options.lambda_init, stats)
     return state, work
 end
 
 function grad_norm_inf(g)
     # Infinity-norm of the gradient: max(|g_i|).
-    T = eltype(g)
-    maxval = zero(T)
+    maxval = 0.0
     @inbounds for i in eachindex(g)
         val = abs(g[i])
         if val > maxval
@@ -189,25 +183,24 @@ function update_rhs!(b_aug, r, m, n)
         b_aug[i] = -r[i]
     end
     @inbounds for i in 1:n
-        b_aug[m + i] = zero(eltype(b_aug))
+        b_aug[m + i] = 0.0
     end
     return nothing
 end
 
-function evaluate_current!(work::Workspace, problem::Problem, x)
+function evaluate_current!(work, problem, x)
     # Evaluate residual, Jacobian, cost, and gradient at the current x.
-    T = eltype(work.r)
     problem.r!(work.r, x)
     problem.J!(work.J, x)
-    cost = T(0.5) * dot(work.r, work.r)
+    cost = 0.5 * dot(work.r, work.r)
     mul!(work.g, work.J', work.r)
     gnorm = grad_norm_inf(work.g)
     return cost, gnorm
 end
 
 function compute_step!(
-        work::Workspace,
-        problem::Problem,
+        work,
+        problem,
         lambda,
         options)
     # Solve the damped least-squares subproblem via sparse QR.
@@ -218,7 +211,7 @@ function compute_step!(
     return nothing
 end
 
-function trial_step!(work::Workspace, x)
+function trial_step!(work, x)
     # Form x_trial = x + step without allocating.
     @inbounds for i in eachindex(x)
         work.x_trial[i] = x[i] + work.step[i]
@@ -226,26 +219,24 @@ function trial_step!(work::Workspace, x)
     return nothing
 end
 
-function evaluate_trial!(work::Workspace, problem::Problem)
+function evaluate_trial!(work, problem)
     # Compute trial residual and cost at x_trial.
-    T = eltype(work.r_trial)
     problem.r!(work.r_trial, work.x_trial)
-    return T(0.5) * dot(work.r_trial, work.r_trial)
+    return 0.5 * dot(work.r_trial, work.r_trial)
 end
 
 function predicted_reduction(g, step, lambda)
     # Quadratic model decrease for LM step.
-    T = eltype(step)
-    pred = zero(T)
+    pred = 0.0
     @inbounds for i in eachindex(step)
         pred += step[i] * (lambda * step[i] - g[i])
     end
-    return pred * T(0.5)
+    return pred * 0.5
 end
 
 function accept_trial!(
-        work::Workspace,
-        problem::Problem,
+        work,
+        problem,
         x,
         cost_trial)
     # Commit trial point and refresh Jacobian and gradient.
@@ -263,28 +254,25 @@ function converged(cost, gnorm, rnorm0, options)
 end
 
 """
-    solve!(state, problem, work; options=nothing)
+    solve!(state, problem, work; options=Options())
 
 Run the LM iterations in place. Updates `state.x` and `state.stats`, and returns `stats`.
 """
-function solve!(state::State, problem::Problem, work::Workspace; options=nothing)
-    if options === nothing
-        options = Options{eltype(state.x)}()
-    end
-    T = eltype(state.x)
+function solve!(state::State, problem::Problem, work::Workspace;
+        options=Options())
     x = state.x
     g = work.g
     step = work.step
 
     cost, gnorm = evaluate_current!(work, problem, x)
-    rnorm0 = sqrt(T(2) * cost)
+    rnorm0 = sqrt(2 * cost)
     lambda = state.lambda
 
     stats = state.stats
     stats.iters = 0
     stats.cost = cost
     stats.grad_norm = gnorm
-    stats.step_norm = T(Inf)
+    stats.step_norm = Inf
     stats.status = :running
 
     for iter in 1:options.max_iters
@@ -307,8 +295,8 @@ function solve!(state::State, problem::Problem, work::Workspace; options=nothing
         cost_trial = evaluate_trial!(work, problem)
         pred = predicted_reduction(g, step, lambda)
 
-        if pred <= zero(T)
-            lambda = min(lambda * T(2), options.lambda_max)
+        if pred <= 0
+            lambda = min(lambda * 2, options.lambda_max)
             continue
         end
 
@@ -316,13 +304,13 @@ function solve!(state::State, problem::Problem, work::Workspace; options=nothing
         if cost_trial < cost
             cost, gnorm = accept_trial!(work, problem, x, cost_trial)
 
-            if rho > T(0.75)
-                lambda = max(lambda / T(2), options.lambda_min)
-            elseif rho < T(0.25)
-                lambda = min(lambda * T(2), options.lambda_max)
+            if rho > 0.75
+                lambda = max(lambda / 2, options.lambda_min)
+            elseif rho < 0.25
+                lambda = min(lambda * 2, options.lambda_max)
             end
         else
-            lambda = min(lambda * T(2), options.lambda_max)
+            lambda = min(lambda * 2, options.lambda_max)
         end
     end
 

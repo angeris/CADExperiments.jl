@@ -76,19 +76,18 @@ end
 
 Container for points, shapes, constraints, and cached solver state.
 """
-mutable struct Sketch{T<:AbstractFloat}
-    x::Vector{T}
+mutable struct Sketch
+    x::Vector{Float64}
     lines::Vector{Line}
     constraints::Vector{Constraint}
     m::Int
     structure_dirty::Bool
-    problem::Union{Nothing, SparseLNNS.Problem{T}}
-    state::Union{Nothing, SparseLNNS.State{T}}
-    work::Union{Nothing, SparseLNNS.Workspace{T}}
+    problem::Union{Nothing, SparseLNNS.Problem}
+    state::Union{Nothing, SparseLNNS.State}
+    work::Union{Nothing, SparseLNNS.Workspace}
 end
 
-Sketch{T}() where {T<:AbstractFloat} = Sketch{T}(T[], Line[], Constraint[], 0, true, nothing, nothing, nothing)
-Sketch() = Sketch{Float64}()
+Sketch() = Sketch(Float64[], Line[], Constraint[], 0, true, nothing, nothing, nothing)
 
 @inline function point_indices(p)
     ix = 2 * (p - 1) + 1
@@ -114,9 +113,8 @@ end
 Append a point `(x, y)` and return its 1-based index.
 """
 function add_point!(sketch::Sketch, x, y)
-    T = eltype(sketch.x)
-    push!(sketch.x, T(x))
-    push!(sketch.x, T(y))
+    push!(sketch.x, Float64(x))
+    push!(sketch.x, Float64(y))
     mark_dirty!(sketch)
     return length(sketch.x) ÷ 2
 end
@@ -358,13 +356,12 @@ end
 Construct a SparseLNNS problem from current constraints.
 """
 function build_problem!(sketch::Sketch)
-    T = eltype(sketch.x)
     m = sketch.m
     n = length(sketch.x)
     m > 0 || throw(ArgumentError("cannot build problem with no constraints"))
     n > 0 || throw(ArgumentError("cannot build problem with no points"))
 
-    Jpat = spzeros(T, m, n)
+    Jpat = spzeros(Float64, m, n)
     offset = 0
     for constraint in sketch.constraints
         pattern!(Jpat, constraint, sketch, offset)
@@ -397,14 +394,11 @@ function build_problem!(sketch::Sketch)
 end
 
 """
-    solve!(sketch; options=nothing)
+    solve!(sketch; options=SparseLNNS.Options())
 
 Solve the current constraint system and update `sketch.x` in place.
 """
-function solve!(sketch::Sketch; options=nothing)
-    if options === nothing
-        options = SparseLNNS.Options{eltype(sketch.x)}()
-    end
+function solve!(sketch::Sketch; options=SparseLNNS.Options())
     if sketch.problem === nothing || sketch.structure_dirty
         build_problem!(sketch)
         sketch.state, sketch.work = SparseLNNS.initialize(sketch.problem, sketch.x; options=options)

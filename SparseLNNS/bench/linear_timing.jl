@@ -29,7 +29,7 @@ end
 
 function run_case(n, density)
     prob = linear_problem(n, density; seed=1)
-    options = Options(lambda_init=0.0, max_iters=5)
+    options = Options(lambda_init=0, max_iters=5)
     state, work = initialize(prob, zeros(n); options=options)
     solve!(state, prob, work; options=options) # warm up
     fill!(state.x, 0.0)

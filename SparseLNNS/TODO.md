@@ -8,40 +8,40 @@
 - Decide on outputs: final parameters in `state.x`, plus `Stats` (iters, status, residual norm, step norm).
 - API sketch (proposed, adjust as needed):
   ```julia
-  struct Problem{T}
+  struct Problem
       r!::Function          # r!(out, x)::Nothing
       J!::Function          # J!(J, x)::Nothing
       m::Int
       n::Int
-      jac_pattern::SparseMatrixCSC{T,Int}
+      jac_pattern::SparseMatrixCSC{Float64,Int}
   end
 
-  struct Options{T}
+  struct Options
       max_iters::Int
-      atol::T; rtol::T; gtol::T; step_tol::T
-      lambda_init::T; lambda_min::T; lambda_max::T
+      atol::Float64; rtol::Float64; gtol::Float64; step_tol::Float64
+      lambda_init::Float64; lambda_min::Float64; lambda_max::Float64
   end
 
-  struct Workspace{T}
-      r::Vector{T}
-      J::SparseMatrixCSC{T,Int}
-      A::SparseMatrixCSC{T,Int}  # J'J + λI
-      g::Vector{T}               # J'r
-      step::Vector{T}
-      x_trial::Vector{T}
-      diag::Vector{T}
+  struct Workspace
+      r::Vector{Float64}
+      J::SparseMatrixCSC{Float64,Int}
+      A::SparseMatrixCSC{Float64,Int}  # J'J + λI
+      g::Vector{Float64}               # J'r
+      step::Vector{Float64}
+      x_trial::Vector{Float64}
+      diag::Vector{Float64}
   end
 
-  struct State{T}
-      x::Vector{T}
-      stats::Stats{T}
+  struct State
+      x::Vector{Float64}
+      stats::Stats
   end
 
-  struct Stats{T}
+  struct Stats
       iters::Int
-      cost::T
-      grad_norm::T
-      step_norm::T
+      cost::Float64
+      grad_norm::Float64
+      step_norm::Float64
       status::Symbol
   end
   ```
