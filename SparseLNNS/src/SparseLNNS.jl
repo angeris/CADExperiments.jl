@@ -278,8 +278,9 @@ function log_row(io, iter, cost, rnorm, gnorm, step_norm, lambda, rho)
     return nothing
 end
 
-function log_footer(io)
+function log_footer(io, elapsed_s, alloc_bytes)
     @printf(io, "------+-----------+-----------+-----------+----------+----------+-------\n")
+    @printf(io, " time: %8.3f s | alloc: %8.2f MiB\n", elapsed_s, alloc_bytes / 1024^2)
     return nothing
 end
 
@@ -287,8 +288,19 @@ end
     solve!(state, problem, work; options=Options())
 
 Run the LM iterations in place. Updates `state.x` and `state.stats`, and returns `stats`.
+When logging is enabled, prints per-iteration output plus total time and allocations.
 """
 function solve!(state::State, problem::Problem, work::Workspace;
+        options=Options())
+    if options.log
+        timed = @timed solve_impl!(state, problem, work; options=options)
+        log_footer(options.log_io, timed.time, timed.bytes)
+        return timed.value
+    end
+    return solve_impl!(state, problem, work; options=options)
+end
+
+function solve_impl!(state::State, problem::Problem, work::Workspace;
         options=Options())
     x = state.x
     g = work.g
@@ -364,9 +376,6 @@ function solve!(state::State, problem::Problem, work::Workspace;
     state.lambda = lambda
     stats.cost = cost
     stats.grad_norm = gnorm
-    if log_enabled
-        log_footer(log_io)
-    end
     return stats
 end
 
