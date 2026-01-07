@@ -96,7 +96,9 @@ end
 end
 
 @testset "cad-inspired: axis + distance" begin
-    # Fixed point (x1,y1)=(1,1), point2 on x-axis, and distance=2 to point1.
+    # Points: p1=(x1,y1), p2=(x2,y2).
+    # Constraints: p1 fixed at (1,1); p2 on x-axis; |p2-p1|=2.
+    # Expected: p2=(1+sqrt(3), 0).
     function r5!(out, x)
         x1 = x[1]
         y1 = x[2]
@@ -143,7 +145,10 @@ end
 end
 
 @testset "cad-inspired: parallel lines" begin
-    # Line1 fixed to x-axis; Line2 anchored at y=1, parallel and length=2 -> p4=(2,1).
+    # Points: p1,p2 define line1; p3,p4 define line2.
+    # Constraints: p1=(0,0), p2=(2,0) (line1 on x-axis); p3=(0,1) (line2 anchored);
+    # line2 is parallel to line1 and |p4-p3|=2.
+    # Expected: p4=(2,1).
     function r6!(out, x)
         x1 = x[1]; y1 = x[2]
         x2 = x[3]; y2 = x[4]
@@ -223,7 +228,10 @@ end
 end
 
 @testset "cad-inspired: perpendicular lines" begin
-    # Line1 fixed to x-axis, Line2 anchored at (1,0), perpendicular with y4=2 -> p4=(1,2).
+    # Points: p1,p2 define line1; p3,p4 define line2.
+    # Constraints: p1=(0,0), p2=(2,0) (line1 on x-axis);
+    # p3=(1,0) (line2 anchored); line2 ⟂ line1; p4 has y=2.
+    # Expected: p4=(1,2).
     function r7!(out, x)
         x1 = x[1]; y1 = x[2]
         x2 = x[3]; y2 = x[4]
@@ -291,7 +299,10 @@ end
 end
 
 @testset "cad-inspired: tangent circle" begin
-    # Circle tangent to x-axis and passing through (2,1) -> center (1,1), r=1.
+    # Circle center (cx,cy) with radius r, plus point p3 on circle.
+    # Constraints: circle center x fixed at 1; circle tangent to x-axis (cy=r);
+    # p3 fixed at (2,1) and lies on circle.
+    # Expected: center=(1,1), r=1.
     function r8!(out, x)
         x1 = x[1]; y1 = x[2]
         x2 = x[3]; y2 = x[4]
@@ -357,7 +368,11 @@ end
 end
 
 @testset "cad-inspired: complex constraints" begin
-    # Coincident points, parallel lines, and tangent circle -> p4=(2,1), center (1,1), r=1.
+    # Points: p1,p2 define line1; p3,p4 define line2; p5 coincident with p1; p6 coincident with p3.
+    # Constraints: p1=(0,0), p2=(2,0) (line1 on x-axis); p3=(0,1) (line2 anchored);
+    # p5=p1, p6=p3 (coincident constraints); line2 ∥ line1; |p4-p3|=2;
+    # circle center fixed at (1,1) with tangent-to-x-axis (cy=r); p4 lies on circle.
+    # Expected: p4=(2,1), center=(1,1), r=1.
     function r9!(out, x)
         x1 = x[1]; y1 = x[2]
         x2 = x[3]; y2 = x[4]
