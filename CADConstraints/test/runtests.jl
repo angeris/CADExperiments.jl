@@ -19,8 +19,8 @@ using CADConstraints
     stats = solve!(sk)
     ix2, iy2 = 2 * (p2 - 1) + 1, 2 * (p2 - 1) + 2
     @test stats.status == :converged
-    @test isapprox(sk.x[ix2], 2.0; atol=1e-5)
-    @test isapprox(sk.x[iy2], 0.0; atol=1e-5)
+    @test isapprox(sk.x[ix2], 2.0; atol=1e-8)
+    @test isapprox(sk.x[iy2], 0.0; atol=1e-8)
 end
 
 @testset "distance constraint" begin
@@ -37,8 +37,8 @@ end
     stats = solve!(sk)
     ix2, iy2 = 2 * (p2 - 1) + 1, 2 * (p2 - 1) + 2
     @test stats.status == :converged
-    @test isapprox(abs(sk.x[ix2]), 5.0; atol=1e-5)
-    @test isapprox(sk.x[iy2], 0.0; atol=1e-5)
+    @test isapprox(abs(sk.x[ix2]), 5.0; atol=1e-8)
+    @test isapprox(sk.x[iy2], 0.0; atol=1e-8)
 end
 
 @testset "circle radius constraint" begin
@@ -56,8 +56,8 @@ end
     stats = solve!(sk)
     ixr, iyr = 2 * (rim - 1) + 1, 2 * (rim - 1) + 2
     @test stats.status == :converged
-    @test isapprox(abs(sk.x[ixr]), 5.0; atol=1e-5)
-    @test isapprox(sk.x[iyr], 0.0; atol=1e-3)
+    @test isapprox(abs(sk.x[ixr]), 5.0; atol=1e-8)
+    @test isapprox(sk.x[iyr], 0.0; atol=1e-8)
 end
 
 @testset "value updates reuse problem" begin
@@ -119,14 +119,14 @@ end
     @test stats.status == :converged
 
     ix3a, iy3a = 2 * (p3a - 1) + 1, 2 * (p3a - 1) + 2
-    @test isapprox(sk.x[ix3a], 4.0; atol=1e-4)
-    @test isapprox(sk.x[iy3a], 3.0; atol=1e-4)
+    @test isapprox(sk.x[ix3a], 4.0; atol=1e-6)
+    @test isapprox(sk.x[iy3a], 3.0; atol=1e-6)
 
     for (pa, pb) in ((p1a, p1b), (p2a, p2b), (p3a, p3b), (p4a, p4b))
         ix1, iy1 = 2 * (pa - 1) + 1, 2 * (pa - 1) + 2
         ix2, iy2 = 2 * (pb - 1) + 1, 2 * (pb - 1) + 2
-        @test isapprox(sk.x[ix1], sk.x[ix2]; atol=1e-4)
-        @test isapprox(sk.x[iy1], sk.x[iy2]; atol=1e-4)
+        @test isapprox(sk.x[ix1], sk.x[ix2]; atol=1e-6)
+        @test isapprox(sk.x[iy1], sk.x[iy2]; atol=1e-6)
     end
 end
 
@@ -139,15 +139,17 @@ end
 
     c1 = push!(sk, Circle(center, rim))
     l1 = push!(sk, Line(rim, anchor))
+    l2 = push!(sk, Line(center, rim))
 
     push!(sk, FixedPoint(center, 0.0, 0.0))
     push!(sk, FixedPoint(anchor, 5.0, 0.0))
     push!(sk, Radius(c1, 5.0))
     push!(sk, Vertical(l1))
+    push!(sk, Horizontal(l2))
 
     stats = solve!(sk)
     ixr, iyr = 2 * (rim - 1) + 1, 2 * (rim - 1) + 2
     @test stats.status == :converged
-    @test isapprox(sk.x[ixr], 5.0; atol=1e-5)
-    @test isapprox(sk.x[iyr], 0.0; atol=1e-3)
+    @test isapprox(sk.x[ixr], 5.0; atol=1e-6)
+    @test isapprox(sk.x[iyr], 0.0; atol=1e-6)
 end

@@ -1,6 +1,6 @@
 using CADConstraints
 
-# Timing smoke test for a moderately constrained rectangle with coincident endpoints.
+# Timing smoke test for a moderately complex sketch with lines, distances, and a circle.
 sk = Sketch()
 p1a = add_point!(sk, -0.2, 0.1)
 p1b = add_point!(sk, 0.1, -0.1)
@@ -31,6 +31,22 @@ push!(sk, Horizontal(l3))
 push!(sk, Vertical(l4))
 push!(sk, Parallel(l1, l3))
 push!(sk, Parallel(l2, l4))
+
+# Circle tied to the rectangle: center at (1,1), rim fixed by radius + distance to top-right.
+p5 = add_point!(sk, 1.2, 1.1)   # center
+p6 = add_point!(sk, 1.1, 3.2)   # rim
+c1 = push!(sk, Circle(p5, p6))
+l5 = push!(sk, Line(p5, p6))
+
+push!(sk, FixedPoint(p5, 1.0, 1.0))
+push!(sk, Radius(c1, 2.0))
+push!(sk, Vertical(l5))
+push!(sk, Distance(p6, p3a, 3.0))
+
+# Distance-only anchor: p7 should land at (2, 0) between fixed endpoints.
+p7 = add_point!(sk, 1.7, 0.2)
+push!(sk, Distance(p7, p1a, 2.0))
+push!(sk, Distance(p7, p2a, 2.0))
 
 solve!(sk) # warm up
 
