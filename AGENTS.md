@@ -18,11 +18,14 @@
 - Prefer in-place APIs (`solve!`, `r!`, `J!`) with preallocated buffers.
 - Types in `CamelCase`, functions in `lowercase`. Avoid clever metaprogramming.
 - Add brief comments when logic is non-obvious or numerically delicate.
+- Update Julia dependencies via `Pkg.add`/`Pkg.develop`, not by editing `Project.toml` by hand.
+- For CADConstraints, add shapes/constraints via `push!` on `Sketch` (multiple dispatch over `Shape`/`Constraint`).
 
 ## Performance & Allocation Discipline
 - Avoid allocations in the LM loop: preallocate residuals, Jacobian storage, steps, and RHS.
 - Keep the augmented system sparse and fixed-pattern; only update `nzval` data.
 - Favor deterministic data flow over implicit global state.
+- Aim for no additional allocations beyond structural edits (adding points, shapes, constraints).
 
 ## Testing Guidelines
 - Use Julia `Test` and keep tests deterministic with fixed seeds when random.

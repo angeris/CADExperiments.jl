@@ -3,32 +3,72 @@ module CADConstraints
 using SparseArrays
 using SparseLNNS
 
-export Sketch, Line, Constraint
-export add_point!, add_line!, add_fixed_point!, add_coincident!
-export add_horizontal!, add_vertical!, add_parallel!
-export build_problem!, solve!
+import Base: push!
+
+export Shape, Constraint, Line
+export FixedPoint, Coincident, Horizontal, Vertical, Parallel
+export Sketch, add_point!, build_problem!, solve!
+
+abstract type Shape end
+abstract type Constraint end
 
 """
     Line(p1, p2)
 
 Line shape defined by two point indices.
 """
-struct Line
+struct Line <: Shape
     p1::Int
     p2::Int
 end
 
 """
-    Constraint(m, rows, cols, residual!, jacobian!)
+    FixedPoint(p, x, y)
 
-Point-based constraint with a fixed Jacobian pattern.
+Fix point `p` at `(x, y)`.
 """
-struct Constraint
-    m::Int
-    rows::Vector{Int}
-    cols::Vector{Int}
-    residual!::Function
-    jacobian!::Function
+struct FixedPoint{T<:Real} <: Constraint
+    p::Int
+    x::T
+    y::T
+end
+
+"""
+    Coincident(p1, p2)
+
+Constrain points `p1` and `p2` to coincide.
+"""
+struct Coincident <: Constraint
+    p1::Int
+    p2::Int
+end
+
+"""
+    Horizontal(line)
+
+Constrain a line to be horizontal (y1 == y2).
+"""
+struct Horizontal <: Constraint
+    line::Int
+end
+
+"""
+    Vertical(line)
+
+Constrain a line to be vertical (x1 == x2).
+"""
+struct Vertical <: Constraint
+    line::Int
+end
+
+"""
+    Parallel(line1, line2)
+
+Constrain two lines to be parallel.
+"""
+struct Parallel <: Constraint
+    line1::Int
+    line2::Int
 end
 
 """
@@ -80,155 +120,235 @@ function add_point!(sketch::Sketch{T}, x::Real, y::Real) where {T<:AbstractFloat
     return length(sketch.x) ÷ 2
 end
 
-"""
-    add_line!(sketch, p1, p2) -> line_index
-
-Create a line shape from two point indices.
-"""
-function add_line!(sketch::Sketch, p1::Int, p2::Int)
-    push!(sketch.lines, Line(p1, p2))
+function push!(sketch::Sketch, line::Line)
+    push!(sketch.lines, line)
     mark_dirty!(sketch)
     return length(sketch.lines)
 end
 
-function add_constraint!(sketch::Sketch, constraint::Constraint)
+constraint_rows(::FixedPoint) = 2
+constraint_rows(::Coincident) = 2
+constraint_rows(::Horizontal) = 1
+constraint_rows(::Vertical) = 1
+constraint_rows(::Parallel) = 1
+
+function push!(sketch::Sketch, constraint::Constraint)
+    return push_constraint!(sketch, constraint)
+end
+
+function push_constraint!(sketch::Sketch, constraint::FixedPoint)
     push!(sketch.constraints, constraint)
-    sketch.m += constraint.m
+    sketch.m += constraint_rows(constraint)
     mark_dirty!(sketch)
     return constraint
 end
 
-"""
-    add_fixed_point!(sketch, p, x0, y0)
-
-Fix point `p` at `(x0, y0)`.
-"""
-function add_fixed_point!(sketch::Sketch, p::Int, x0::Real, y0::Real)
-    ix, iy = point_indices(p)
-    rows = [1, 2]
-    cols = [ix, iy]
-    residual! = function (out, x, offset)
-        out[offset + 1] = x[ix] - x0
-        out[offset + 2] = x[iy] - y0
-        return nothing
+function push_constraint!(sketch::Sketch, constraint::Coincident)
+    if constraint.p1 == constraint.p2
+        return constraint
     end
-    jacobian! = function (J, x, offset)
-        J[offset + 1, ix] = 1.0
-        J[offset + 2, iy] = 1.0
-        return nothing
-    end
-    return add_constraint!(sketch, Constraint(2, rows, cols, residual!, jacobian!))
+    push!(sketch.constraints, constraint)
+    sketch.m += constraint_rows(constraint)
+    mark_dirty!(sketch)
+    return constraint
 end
 
-"""
-    add_coincident!(sketch, p1, p2)
-
-Constrain points `p1` and `p2` to coincide.
-"""
-function add_coincident!(sketch::Sketch, p1::Int, p2::Int)
-    ix1, iy1 = point_indices(p1)
-    ix2, iy2 = point_indices(p2)
-    rows = [1, 1, 2, 2]
-    cols = [ix1, ix2, iy1, iy2]
-    residual! = function (out, x, offset)
-        out[offset + 1] = x[ix1] - x[ix2]
-        out[offset + 2] = x[iy1] - x[iy2]
-        return nothing
+function push_constraint!(sketch::Sketch, constraint::Horizontal)
+    p1, p2 = line_points(sketch, constraint.line)
+    if p1 == p2
+        push!(sketch, Coincident(p1, p2))
+        return constraint
     end
-    jacobian! = function (J, x, offset)
-        J[offset + 1, ix1] = 1.0
-        J[offset + 1, ix2] = -1.0
-        J[offset + 2, iy1] = 1.0
-        J[offset + 2, iy2] = -1.0
-        return nothing
-    end
-    return add_constraint!(sketch, Constraint(2, rows, cols, residual!, jacobian!))
+    push!(sketch.constraints, constraint)
+    sketch.m += constraint_rows(constraint)
+    mark_dirty!(sketch)
+    return constraint
 end
 
-"""
-    add_horizontal!(sketch, line_idx)
+function push_constraint!(sketch::Sketch, constraint::Vertical)
+    p1, p2 = line_points(sketch, constraint.line)
+    if p1 == p2
+        push!(sketch, Coincident(p1, p2))
+        return constraint
+    end
+    push!(sketch.constraints, constraint)
+    sketch.m += constraint_rows(constraint)
+    mark_dirty!(sketch)
+    return constraint
+end
 
-Constrain a line to be horizontal (y1 == y2).
-"""
-function add_horizontal!(sketch::Sketch, line_idx::Int)
-    p1, p2 = line_points(sketch, line_idx)
+function push_constraint!(sketch::Sketch, constraint::Parallel)
+    p1, p2 = line_points(sketch, constraint.line1)
+    p3, p4 = line_points(sketch, constraint.line2)
+    if p1 == p2 || p3 == p4
+        if p1 == p2
+            push!(sketch, Coincident(p1, p2))
+        end
+        if p3 == p4
+            push!(sketch, Coincident(p3, p4))
+        end
+        return constraint
+    end
+    push!(sketch.constraints, constraint)
+    sketch.m += constraint_rows(constraint)
+    mark_dirty!(sketch)
+    return constraint
+end
+
+function pattern!(Jpat, constraint::FixedPoint, sketch::Sketch, offset::Int)
+    ix, iy = point_indices(constraint.p)
+    Jpat[offset + 1, ix] = 1.0
+    Jpat[offset + 2, iy] = 1.0
+    return nothing
+end
+
+function pattern!(Jpat, constraint::Coincident, sketch::Sketch, offset::Int)
+    ix1, iy1 = point_indices(constraint.p1)
+    ix2, iy2 = point_indices(constraint.p2)
+    Jpat[offset + 1, ix1] = 1.0
+    Jpat[offset + 1, ix2] = 1.0
+    Jpat[offset + 2, iy1] = 1.0
+    Jpat[offset + 2, iy2] = 1.0
+    return nothing
+end
+
+function pattern!(Jpat, constraint::Horizontal, sketch::Sketch, offset::Int)
+    p1, p2 = line_points(sketch, constraint.line)
     _, iy1 = point_indices(p1)
     _, iy2 = point_indices(p2)
-    rows = [1, 1]
-    cols = [iy1, iy2]
-    residual! = function (out, x, offset)
-        out[offset + 1] = x[iy1] - x[iy2]
-        return nothing
-    end
-    jacobian! = function (J, x, offset)
-        J[offset + 1, iy1] = 1.0
-        J[offset + 1, iy2] = -1.0
-        return nothing
-    end
-    return add_constraint!(sketch, Constraint(1, rows, cols, residual!, jacobian!))
+    Jpat[offset + 1, iy1] = 1.0
+    Jpat[offset + 1, iy2] = 1.0
+    return nothing
 end
 
-"""
-    add_vertical!(sketch, line_idx)
-
-Constrain a line to be vertical (x1 == x2).
-"""
-function add_vertical!(sketch::Sketch, line_idx::Int)
-    p1, p2 = line_points(sketch, line_idx)
+function pattern!(Jpat, constraint::Vertical, sketch::Sketch, offset::Int)
+    p1, p2 = line_points(sketch, constraint.line)
     ix1, _ = point_indices(p1)
     ix2, _ = point_indices(p2)
-    rows = [1, 1]
-    cols = [ix1, ix2]
-    residual! = function (out, x, offset)
-        out[offset + 1] = x[ix1] - x[ix2]
-        return nothing
-    end
-    jacobian! = function (J, x, offset)
-        J[offset + 1, ix1] = 1.0
-        J[offset + 1, ix2] = -1.0
-        return nothing
-    end
-    return add_constraint!(sketch, Constraint(1, rows, cols, residual!, jacobian!))
+    Jpat[offset + 1, ix1] = 1.0
+    Jpat[offset + 1, ix2] = 1.0
+    return nothing
 end
 
-"""
-    add_parallel!(sketch, line1_idx, line2_idx)
-
-Constrain two lines to be parallel using a cross-product residual.
-"""
-function add_parallel!(sketch::Sketch, line1_idx::Int, line2_idx::Int)
-    p1, p2 = line_points(sketch, line1_idx)
-    p3, p4 = line_points(sketch, line2_idx)
+function pattern!(Jpat, constraint::Parallel, sketch::Sketch, offset::Int)
+    p1, p2 = line_points(sketch, constraint.line1)
+    p3, p4 = line_points(sketch, constraint.line2)
     ix1, iy1 = point_indices(p1)
     ix2, iy2 = point_indices(p2)
     ix3, iy3 = point_indices(p3)
     ix4, iy4 = point_indices(p4)
-    rows = [1, 1, 1, 1, 1, 1, 1, 1]
-    cols = [ix1, iy1, ix2, iy2, ix3, iy3, ix4, iy4]
-    residual! = function (out, x, offset)
-        dx12 = x[ix2] - x[ix1]
-        dy12 = x[iy2] - x[iy1]
-        dx34 = x[ix4] - x[ix3]
-        dy34 = x[iy4] - x[iy3]
-        out[offset + 1] = dx12 * dy34 - dy12 * dx34
-        return nothing
-    end
-    jacobian! = function (J, x, offset)
-        dx12 = x[ix2] - x[ix1]
-        dy12 = x[iy2] - x[iy1]
-        dx34 = x[ix4] - x[ix3]
-        dy34 = x[iy4] - x[iy3]
-        J[offset + 1, ix1] = -dy34
-        J[offset + 1, iy1] = dx34
-        J[offset + 1, ix2] = dy34
-        J[offset + 1, iy2] = -dx34
-        J[offset + 1, ix3] = dy12
-        J[offset + 1, iy3] = -dx12
-        J[offset + 1, ix4] = -dy12
-        J[offset + 1, iy4] = dx12
-        return nothing
-    end
-    return add_constraint!(sketch, Constraint(1, rows, cols, residual!, jacobian!))
+    Jpat[offset + 1, ix1] = 1.0
+    Jpat[offset + 1, iy1] = 1.0
+    Jpat[offset + 1, ix2] = 1.0
+    Jpat[offset + 1, iy2] = 1.0
+    Jpat[offset + 1, ix3] = 1.0
+    Jpat[offset + 1, iy3] = 1.0
+    Jpat[offset + 1, ix4] = 1.0
+    Jpat[offset + 1, iy4] = 1.0
+    return nothing
+end
+
+function residual!(out::Vector, x::Vector, constraint::FixedPoint, sketch::Sketch, offset::Int)
+    ix, iy = point_indices(constraint.p)
+    out[offset + 1] = x[ix] - constraint.x
+    out[offset + 2] = x[iy] - constraint.y
+    return nothing
+end
+
+function residual!(out::Vector, x::Vector, constraint::Coincident, sketch::Sketch, offset::Int)
+    ix1, iy1 = point_indices(constraint.p1)
+    ix2, iy2 = point_indices(constraint.p2)
+    out[offset + 1] = x[ix1] - x[ix2]
+    out[offset + 2] = x[iy1] - x[iy2]
+    return nothing
+end
+
+function residual!(out::Vector, x::Vector, constraint::Horizontal, sketch::Sketch, offset::Int)
+    p1, p2 = line_points(sketch, constraint.line)
+    _, iy1 = point_indices(p1)
+    _, iy2 = point_indices(p2)
+    out[offset + 1] = x[iy1] - x[iy2]
+    return nothing
+end
+
+function residual!(out::Vector, x::Vector, constraint::Vertical, sketch::Sketch, offset::Int)
+    p1, p2 = line_points(sketch, constraint.line)
+    ix1, _ = point_indices(p1)
+    ix2, _ = point_indices(p2)
+    out[offset + 1] = x[ix1] - x[ix2]
+    return nothing
+end
+
+function residual!(out::Vector, x::Vector, constraint::Parallel, sketch::Sketch, offset::Int)
+    p1, p2 = line_points(sketch, constraint.line1)
+    p3, p4 = line_points(sketch, constraint.line2)
+    ix1, iy1 = point_indices(p1)
+    ix2, iy2 = point_indices(p2)
+    ix3, iy3 = point_indices(p3)
+    ix4, iy4 = point_indices(p4)
+    dx12 = x[ix2] - x[ix1]
+    dy12 = x[iy2] - x[iy1]
+    dx34 = x[ix4] - x[ix3]
+    dy34 = x[iy4] - x[iy3]
+    out[offset + 1] = dx12 * dy34 - dy12 * dx34
+    return nothing
+end
+
+function jacobian!(J, x::Vector, constraint::FixedPoint, sketch::Sketch, offset::Int)
+    ix, iy = point_indices(constraint.p)
+    J[offset + 1, ix] = 1.0
+    J[offset + 2, iy] = 1.0
+    return nothing
+end
+
+function jacobian!(J, x::Vector, constraint::Coincident, sketch::Sketch, offset::Int)
+    ix1, iy1 = point_indices(constraint.p1)
+    ix2, iy2 = point_indices(constraint.p2)
+    J[offset + 1, ix1] = 1.0
+    J[offset + 1, ix2] = -1.0
+    J[offset + 2, iy1] = 1.0
+    J[offset + 2, iy2] = -1.0
+    return nothing
+end
+
+function jacobian!(J, x::Vector, constraint::Horizontal, sketch::Sketch, offset::Int)
+    p1, p2 = line_points(sketch, constraint.line)
+    _, iy1 = point_indices(p1)
+    _, iy2 = point_indices(p2)
+    J[offset + 1, iy1] = 1.0
+    J[offset + 1, iy2] = -1.0
+    return nothing
+end
+
+function jacobian!(J, x::Vector, constraint::Vertical, sketch::Sketch, offset::Int)
+    p1, p2 = line_points(sketch, constraint.line)
+    ix1, _ = point_indices(p1)
+    ix2, _ = point_indices(p2)
+    J[offset + 1, ix1] = 1.0
+    J[offset + 1, ix2] = -1.0
+    return nothing
+end
+
+function jacobian!(J, x::Vector, constraint::Parallel, sketch::Sketch, offset::Int)
+    p1, p2 = line_points(sketch, constraint.line1)
+    p3, p4 = line_points(sketch, constraint.line2)
+    ix1, iy1 = point_indices(p1)
+    ix2, iy2 = point_indices(p2)
+    ix3, iy3 = point_indices(p3)
+    ix4, iy4 = point_indices(p4)
+    dx12 = x[ix2] - x[ix1]
+    dy12 = x[iy2] - x[iy1]
+    dx34 = x[ix4] - x[ix3]
+    dy34 = x[iy4] - x[iy3]
+    J[offset + 1, ix1] = -dy34
+    J[offset + 1, iy1] = dx34
+    J[offset + 1, ix2] = dy34
+    J[offset + 1, iy2] = -dx34
+    J[offset + 1, ix3] = dy12
+    J[offset + 1, iy3] = -dx12
+    J[offset + 1, ix4] = -dy12
+    J[offset + 1, iy4] = dx12
+    return nothing
 end
 
 """
@@ -244,19 +364,17 @@ function build_problem!(sketch::Sketch{T}) where {T<:AbstractFloat}
 
     Jpat = spzeros(m, n)
     offset = 0
-    for c in sketch.constraints
-        for k in eachindex(c.rows)
-            Jpat[offset + c.rows[k], c.cols[k]] = 1.0
-        end
-        offset += c.m
+    for constraint in sketch.constraints
+        pattern!(Jpat, constraint, sketch, offset)
+        offset += constraint_rows(constraint)
     end
 
     r! = function (out, x)
         fill!(out, zero(eltype(out)))
         offset = 0
-        for c in sketch.constraints
-            c.residual!(out, x, offset)
-            offset += c.m
+        for constraint in sketch.constraints
+            residual!(out, x, constraint, sketch, offset)
+            offset += constraint_rows(constraint)
         end
         return nothing
     end
@@ -264,9 +382,9 @@ function build_problem!(sketch::Sketch{T}) where {T<:AbstractFloat}
     J! = function (J, x)
         fill!(nonzeros(J), zero(eltype(nonzeros(J))))
         offset = 0
-        for c in sketch.constraints
-            c.jacobian!(J, x, offset)
-            offset += c.m
+        for constraint in sketch.constraints
+            jacobian!(J, x, constraint, sketch, offset)
+            offset += constraint_rows(constraint)
         end
         return nothing
     end

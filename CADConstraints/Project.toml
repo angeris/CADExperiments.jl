@@ -8,6 +8,7 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 SparseLNNS = "5f866e5d-c780-4b8c-babf-162a06d3e5e3"
 
 [compat]
+SparseArrays = "1.11.0"
 SparseLNNS = "0.1.0"
 
 [extras]

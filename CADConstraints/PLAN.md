@@ -24,8 +24,9 @@ Build a fast, allocation‑minimal CAD constraint solver for interactive use. St
    - Point on line segment (collinearity).
    - Parallel lines (line1 ∥ line2).
 7) **Constraint API**
-   - `add_point!`, `add_line!`, `add_fixed_point!`, `add_coincident!`,
-     `add_parallel!`, `add_horizontal!`, `add_vertical!`.
+   - `add_point!` for points, and `push!(sketch, Line(...))` for shapes.
+   - `push!(sketch, FixedPoint(...))`, `Coincident(...)`, `Parallel(...)`,
+     `Horizontal(...)`, `Vertical(...)` for constraints.
 
 ## Phase 2: Solver Integration (SparseLNNS)
 8) **Sparsity pattern construction**
