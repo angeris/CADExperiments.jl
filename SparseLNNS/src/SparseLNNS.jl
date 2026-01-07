@@ -1,6 +1,7 @@
 module SparseLNNS
 
 using LinearAlgebra
+using Printf
 using SparseArrays
 using SparseArrays: FixedSparseCSC, getcolptr, rowvals, nonzeros, nnz
 using SparseArrays.SPQR
@@ -31,7 +32,7 @@ end
 """
     Options(; kwargs...)
 
-Solver configuration: tolerances, iteration limits, damping bounds, and QR ordering.
+Solver configuration: tolerances, iteration limits, damping bounds, QR ordering, and logging.
 """
 Base.@kwdef struct Options
     max_iters::Int = 50
@@ -43,6 +44,9 @@ Base.@kwdef struct Options
     lambda_min::Float64 = 1e-12
     lambda_max::Float64 = 1e12
     ordering::Int32 = SPQR.ORDERING_DEFAULT
+    log::Bool = false
+    log_io::IO = stdout
+    log_every::Int = 1
 end
 
 """
@@ -253,6 +257,27 @@ function converged(cost, gnorm, rnorm0, options)
     return gnorm <= options.gtol || rnorm <= options.atol + options.rtol * rnorm0
 end
 
+function log_header(io)
+    @printf(io, " iter |      cost |     rnorm |     gnorm |     step |   lambda |   rho\n")
+    @printf(io, "------+-----------+-----------+-----------+----------+----------+-------\n")
+    return nothing
+end
+
+function log_row(io, iter, cost, rnorm, gnorm, step_norm, lambda, rho)
+    @printf(
+        io,
+        "%5d | %9.2e | %9.2e | %9.2e | %8.2e | %8.2e | %5.2f\n",
+        iter,
+        cost,
+        rnorm,
+        gnorm,
+        step_norm,
+        lambda,
+        rho,
+    )
+    return nothing
+end
+
 """
     solve!(state, problem, work; options=Options())
 
@@ -267,6 +292,12 @@ function solve!(state::State, problem::Problem, work::Workspace;
     cost, gnorm = evaluate_current!(work, problem, x)
     rnorm0 = sqrt(2 * cost)
     lambda = state.lambda
+    log_io = options.log_io
+    log_enabled = options.log
+    if log_enabled
+        log_header(log_io)
+        log_row(log_io, 0, cost, rnorm0, gnorm, 0.0, lambda, NaN)
+    end
 
     stats = state.stats
     stats.iters = 0
@@ -288,6 +319,9 @@ function solve!(state::State, problem::Problem, work::Workspace;
         stats.step_norm = step_norm
         if step_norm <= options.step_tol
             stats.status = :step_tol
+            if log_enabled && iter % options.log_every == 0
+                log_row(log_io, iter, cost, sqrt(2 * cost), gnorm, step_norm, lambda, NaN)
+            end
             break
         end
 
@@ -295,22 +329,26 @@ function solve!(state::State, problem::Problem, work::Workspace;
         cost_trial = evaluate_trial!(work, problem)
         pred = predicted_reduction(g, step, lambda)
 
+        rho = NaN
         if pred <= 0
             lambda = min(lambda * 2, options.lambda_max)
-            continue
-        end
+        else
+            rho = (cost - cost_trial) / pred
+            if cost_trial < cost
+                cost, gnorm = accept_trial!(work, problem, x, cost_trial)
 
-        rho = (cost - cost_trial) / pred
-        if cost_trial < cost
-            cost, gnorm = accept_trial!(work, problem, x, cost_trial)
-
-            if rho > 0.75
-                lambda = max(lambda / 2, options.lambda_min)
-            elseif rho < 0.25
+                if rho > 0.75
+                    lambda = max(lambda / 2, options.lambda_min)
+                elseif rho < 0.25
+                    lambda = min(lambda * 2, options.lambda_max)
+                end
+            else
                 lambda = min(lambda * 2, options.lambda_max)
             end
-        else
-            lambda = min(lambda * 2, options.lambda_max)
+        end
+
+        if log_enabled && iter % options.log_every == 0
+            log_row(log_io, iter, cost, sqrt(2 * cost), gnorm, step_norm, lambda, rho)
         end
     end
 
