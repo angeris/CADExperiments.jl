@@ -36,11 +36,19 @@ end
     return (sketch.x[i], sketch.x[i + 1])
 end
 
+@inline function solve_and_update!(sketch, stats_ref, report_ref, solve_time_ms)
+    t0 = time_ns()
+    stats_ref[] = CADConstraints.solve!(sketch)
+    solve_time_ms[] = (time_ns() - t0) / 1e6
+    report_ref[] = CADConstraints.conflicts(sketch, stats_ref[])
+    return nothing
+end
+
 @inline function color_u32(r::Float32, g::Float32, b::Float32, a::Float32 = 1.0f0)
     return ig.GetColorU32(ig.ImVec4(r, g, b, a))
 end
 
-function draw_sketch!(sketch, selected, hovered, center, scale)
+function draw_sketch!(sketch, selected, hovered, dragging, center, scale, stats_ref, report_ref, solve_time_ms)
     vp = unsafe_load(ig.GetMainViewport())
     ig.SetNextWindowPos((vp.Pos.x, vp.Pos.y))
     ig.SetNextWindowSize((vp.Size.x, vp.Size.y))
@@ -107,6 +115,18 @@ function draw_sketch!(sketch, selected, hovered, center, scale)
 
     if is_hovered && ig.IsMouseClicked(0)
         selected[] = hovered[]
+        dragging[] = hovered[]
+    end
+    if dragging[] != 0
+        if ig.IsMouseDown(0)
+            if io.MouseDelta.x != 0 || io.MouseDelta.y != 0
+                wx, wy = screen_to_world(mouse, origin, center[], scale_f)
+                CADConstraints.set_point!(sketch, dragging[], wx, wy)
+                solve_and_update!(sketch, stats_ref, report_ref, solve_time_ms)
+            end
+        else
+            dragging[] = 0
+        end
     end
 
     for line in sketch.lines
@@ -175,7 +195,7 @@ function draw_toolbar!()
     ig.End()
 end
 
-function draw_status_panel!(stats, report)
+function draw_status_panel!(stats, report, solve_time_ms)
     vp = unsafe_load(ig.GetMainViewport())
     padding = 12.0f0
     ig.SetNextWindowPos((vp.Pos.x + vp.Size.x - padding, vp.Pos.y + vp.Size.y - padding),
@@ -193,6 +213,7 @@ function draw_status_panel!(stats, report)
     ig.TextUnformatted(@sprintf("iters: %d", stats.iters))
     ig.TextUnformatted(@sprintf("cost: %.3e", stats.cost))
     ig.TextUnformatted(@sprintf("residual: %.3e", report.residual_norm))
+    ig.TextUnformatted(@sprintf("solve: %.2f ms", solve_time_ms))
 
     if report.conflicted && !isempty(report.entries)
         ig.Separator()
@@ -216,28 +237,43 @@ function run(; window_size=(640, 480), window_title="CADSketchUI")
     ctx = ig.CreateContext()
 
     sketch = CADConstraints.Sketch()
-    x1, y1 = -1.0, 0.0
-    x2, y2 = 1.0, 0.0
-    x3, y3 = 0.0, 1.2
+    x1, y1 = -2.0, 0.0
+    x2, y2 = 2.0, 0.0
+    x3, y3 = 2.0, 1.5
+    x4, y4 = -2.0, 1.5
+    x5, y5 = 2.0, 3.0
     p1 = CADConstraints.add_point!(sketch, x1, y1)
     p2 = CADConstraints.add_point!(sketch, x2, y2)
     p3 = CADConstraints.add_point!(sketch, x3, y3)
-    push!(sketch, CADConstraints.Line(p1, p2))
-    push!(sketch, CADConstraints.Line(p2, p3))
-    push!(sketch, CADConstraints.FixedPoint(p1, x1, y1))
-    push!(sketch, CADConstraints.Horizontal(1))
-    push!(sketch, CADConstraints.Vertical(2))
+    p4 = CADConstraints.add_point!(sketch, x4, y4)
+    p5 = CADConstraints.add_point!(sketch, x5, y5)
+    l1 = push!(sketch, CADConstraints.Line(p1, p2))
+    l2 = push!(sketch, CADConstraints.Line(p2, p3))
+    l3 = push!(sketch, CADConstraints.Line(p3, p4))
+    l4 = push!(sketch, CADConstraints.Line(p4, p1))
+    l5 = push!(sketch, CADConstraints.Line(p3, p5))
+    push!(sketch, CADConstraints.Horizontal(l1))
+    push!(sketch, CADConstraints.Vertical(l2))
+    push!(sketch, CADConstraints.Horizontal(l3))
+    push!(sketch, CADConstraints.Vertical(l4))
+    push!(sketch, CADConstraints.Vertical(l5))
     dx12 = x1 - x2
     dy12 = y1 - y2
     dx23 = x2 - x3
     dy23 = y2 - y3
+    dx35 = x3 - x5
+    dy35 = y3 - y5
     d12 = sqrt(dx12 * dx12 + dy12 * dy12)
     d23 = sqrt(dx23 * dx23 + dy23 * dy23)
+    d35 = sqrt(dx35 * dx35 + dy35 * dy35)
     push!(sketch, CADConstraints.Distance(p1, p2, d12))
     push!(sketch, CADConstraints.Distance(p2, p3, d23))
-    stats = CADConstraints.solve!(sketch)
-    report = CADConstraints.conflicts(sketch, stats)
-    @info "Initial solve" iters=stats.iters status=stats.status cost=stats.cost
+    push!(sketch, CADConstraints.Distance(p3, p5, d35))
+    t0 = time_ns()
+    stats_ref = Ref(CADConstraints.solve!(sketch))
+    solve_time_ms = Ref((time_ns() - t0) / 1e6)
+    report_ref = Ref(CADConstraints.conflicts(sketch, stats_ref[]))
+    @info "Initial solve" iters=stats_ref[].iters status=stats_ref[].status cost=stats_ref[].cost
     for idx in 1:point_count(sketch)
         x, y = point_xy(sketch, idx)
         @info "Point" index=idx x y
@@ -247,10 +283,11 @@ function run(; window_size=(640, 480), window_title="CADSketchUI")
     center = Ref((0.0, 0.0))
     scale = Ref(80.0)
 
+    dragging = Ref(0)
     ig.render(ctx; window_size=window_size, window_title=window_title) do
-        draw_sketch!(sketch, selected, hovered, center, scale)
+        draw_sketch!(sketch, selected, hovered, dragging, center, scale, stats_ref, report_ref, solve_time_ms)
         draw_toolbar!()
-        draw_status_panel!(stats, report)
+        draw_status_panel!(stats_ref[], report_ref[], solve_time_ms[])
     end
     return nothing
 end
