@@ -5,8 +5,8 @@ using SparseLNNS
 
 import Base: push!
 
-export Shape, Constraint, Line
-export FixedPoint, Coincident, Horizontal, Vertical, Parallel
+export Shape, Constraint, Line, Circle
+export FixedPoint, Coincident, Horizontal, Vertical, Parallel, Distance, Radius
 export Sketch, add_point!, set_point!, build_problem!, solve!
 
 abstract type Shape end
@@ -20,6 +20,16 @@ Line shape defined by two point indices.
 struct Line <: Shape
     p1::Int
     p2::Int
+end
+
+"""
+    Circle(center, rim)
+
+Circle shape defined by center and rim point indices.
+"""
+struct Circle <: Shape
+    center::Int
+    rim::Int
 end
 
 """
@@ -72,12 +82,34 @@ struct Parallel <: Constraint
 end
 
 """
+    Distance(p1, p2, d)
+
+Constrain the distance between points `p1` and `p2` to `d`.
+"""
+struct Distance{T<:Real} <: Constraint
+    p1::Int
+    p2::Int
+    d::T
+end
+
+"""
+    Radius(circle, r)
+
+Constrain a circle's radius to `r`.
+"""
+struct Radius{T<:Real} <: Constraint
+    circle::Int
+    r::T
+end
+
+"""
     Sketch()
 
 Container for points, shapes, constraints, and cached solver state.
 """
 mutable struct Sketch
     x::Vector{Float64}
+    circles::Vector{Circle}
     lines::Vector{Line}
     constraints::Vector{Constraint}
     structure_dirty::Bool
@@ -102,7 +134,7 @@ end
 
 function Sketch()
     problem, state, work = empty_state_work()
-    return Sketch(Float64[], Line[], Constraint[], true, false, problem, state, work)
+    return Sketch(Float64[], Circle[], Line[], Constraint[], true, false, problem, state, work)
 end
 
 @inline function point_indices(p)
@@ -113,6 +145,11 @@ end
 @inline function line_points(sketch, line_idx)
     line = sketch.lines[line_idx]
     return line.p1, line.p2
+end
+
+@inline function circle_points(sketch, circle_idx)
+    circle = sketch.circles[circle_idx]
+    return circle.center, circle.rim
 end
 
 @inline function mark_structure_dirty!(sketch::Sketch)
@@ -157,11 +194,19 @@ function push!(sketch::Sketch, line::Line)
     return length(sketch.lines)
 end
 
+function push!(sketch::Sketch, circle::Circle)
+    push!(sketch.circles, circle)
+    mark_structure_dirty!(sketch)
+    return length(sketch.circles)
+end
+
 constraint_rows(::FixedPoint) = 2
 constraint_rows(::Coincident) = 2
 constraint_rows(::Horizontal) = 1
 constraint_rows(::Vertical) = 1
 constraint_rows(::Parallel) = 1
+constraint_rows(::Distance) = 1
+constraint_rows(::Radius) = 1
 
 function push!(sketch::Sketch, constraint::FixedPoint)
     push!(sketch.constraints, constraint)
@@ -212,6 +257,18 @@ function push!(sketch::Sketch, constraint::Parallel)
         end
         return constraint
     end
+    push!(sketch.constraints, constraint)
+    mark_structure_dirty!(sketch)
+    return constraint
+end
+
+function push!(sketch::Sketch, constraint::Distance)
+    push!(sketch.constraints, constraint)
+    mark_structure_dirty!(sketch)
+    return constraint
+end
+
+function push!(sketch::Sketch, constraint::Radius)
     push!(sketch.constraints, constraint)
     mark_structure_dirty!(sketch)
     return constraint
@@ -270,6 +327,27 @@ function pattern!(Jpat, constraint::Parallel, sketch, offset)
     return nothing
 end
 
+function pattern!(Jpat, constraint::Distance, sketch, offset)
+    ix1, iy1 = point_indices(constraint.p1)
+    ix2, iy2 = point_indices(constraint.p2)
+    Jpat[offset + 1, ix1] = 1.0
+    Jpat[offset + 1, iy1] = 1.0
+    Jpat[offset + 1, ix2] = 1.0
+    Jpat[offset + 1, iy2] = 1.0
+    return nothing
+end
+
+function pattern!(Jpat, constraint::Radius, sketch, offset)
+    center, rim = circle_points(sketch, constraint.circle)
+    ix1, iy1 = point_indices(center)
+    ix2, iy2 = point_indices(rim)
+    Jpat[offset + 1, ix1] = 1.0
+    Jpat[offset + 1, iy1] = 1.0
+    Jpat[offset + 1, ix2] = 1.0
+    Jpat[offset + 1, iy2] = 1.0
+    return nothing
+end
+
 function residual!(out, x, constraint::FixedPoint, sketch, offset)
     ix, iy = point_indices(constraint.p)
     out[offset + 1] = x[ix] - constraint.x
@@ -313,6 +391,25 @@ function residual!(out, x, constraint::Parallel, sketch, offset)
     dx34 = x[ix4] - x[ix3]
     dy34 = x[iy4] - x[iy3]
     out[offset + 1] = dx12 * dy34 - dy12 * dx34
+    return nothing
+end
+
+function residual!(out, x, constraint::Distance, sketch, offset)
+    ix1, iy1 = point_indices(constraint.p1)
+    ix2, iy2 = point_indices(constraint.p2)
+    dx = x[ix2] - x[ix1]
+    dy = x[iy2] - x[iy1]
+    out[offset + 1] = hypot(dx, dy) - constraint.d
+    return nothing
+end
+
+function residual!(out, x, constraint::Radius, sketch, offset)
+    center, rim = circle_points(sketch, constraint.circle)
+    ix1, iy1 = point_indices(center)
+    ix2, iy2 = point_indices(rim)
+    dx = x[ix2] - x[ix1]
+    dy = x[iy2] - x[iy1]
+    out[offset + 1] = hypot(dx, dy) - constraint.r
     return nothing
 end
 
@@ -373,6 +470,40 @@ function jacobian!(J, x, constraint::Parallel, sketch, offset)
     return nothing
 end
 
+function jacobian!(J, x, constraint::Distance, sketch, offset)
+    ix1, iy1 = point_indices(constraint.p1)
+    ix2, iy2 = point_indices(constraint.p2)
+    dx = x[ix2] - x[ix1]
+    dy = x[iy2] - x[iy1]
+    dist = hypot(dx, dy)
+    if dist == 0
+        return nothing
+    end
+    inv = 1 / dist
+    J[offset + 1, ix1] = -dx * inv
+    J[offset + 1, iy1] = -dy * inv
+    J[offset + 1, ix2] = dx * inv
+    J[offset + 1, iy2] = dy * inv
+    return nothing
+end
+
+function jacobian!(J, x, constraint::Radius, sketch, offset)
+    center, rim = circle_points(sketch, constraint.circle)
+    ix1, iy1 = point_indices(center)
+    ix2, iy2 = point_indices(rim)
+    dx = x[ix2] - x[ix1]
+    dy = x[iy2] - x[iy1]
+    dist = hypot(dx, dy)
+    if dist == 0
+        return nothing
+    end
+    inv = 1 / dist
+    J[offset + 1, ix1] = -dx * inv
+    J[offset + 1, iy1] = -dy * inv
+    J[offset + 1, ix2] = dx * inv
+    J[offset + 1, iy2] = dy * inv
+    return nothing
+end
 """
     build_problem!(sketch)
 

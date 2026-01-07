@@ -23,6 +23,43 @@ using CADConstraints
     @test isapprox(sk.x[iy2], 0.0; atol=1e-5)
 end
 
+@testset "distance constraint" begin
+    # Fix p1 at (0,0), enforce horizontal line, and set distance(p1,p2)=5.
+    sk = Sketch()
+    p1 = add_point!(sk, 0.0, 0.0)
+    p2 = add_point!(sk, 4.0, 0.1)
+    l1 = push!(sk, Line(p1, p2))
+
+    push!(sk, FixedPoint(p1, 0.0, 0.0))
+    push!(sk, Horizontal(l1))
+    push!(sk, Distance(p1, p2, 5.0))
+
+    stats = solve!(sk)
+    ix2, iy2 = 2 * (p2 - 1) + 1, 2 * (p2 - 1) + 2
+    @test stats.status == :converged
+    @test isapprox(abs(sk.x[ix2]), 5.0; atol=1e-5)
+    @test isapprox(sk.x[iy2], 0.0; atol=1e-5)
+end
+
+@testset "circle radius constraint" begin
+    # Constrain a circle center to (0,0) and radius to 5; lock orientation with a horizontal line.
+    sk = Sketch()
+    center = add_point!(sk, 0.2, -0.1)
+    rim = add_point!(sk, 4.2, 1.0)
+    c1 = push!(sk, Circle(center, rim))
+    l1 = push!(sk, Line(center, rim))
+
+    push!(sk, FixedPoint(center, 0.0, 0.0))
+    push!(sk, Horizontal(l1))
+    push!(sk, Radius(c1, 5.0))
+
+    stats = solve!(sk)
+    ixr, iyr = 2 * (rim - 1) + 1, 2 * (rim - 1) + 2
+    @test stats.status == :converged
+    @test isapprox(abs(sk.x[ixr]), 5.0; atol=1e-5)
+    @test isapprox(sk.x[iyr], 0.0; atol=1e-3)
+end
+
 @testset "value updates reuse problem" begin
     # Update a point in-place without structural edits; no allocations and no rebuild.
     sk = Sketch()
@@ -91,4 +128,26 @@ end
         @test isapprox(sk.x[ix1], sk.x[ix2]; atol=1e-4)
         @test isapprox(sk.x[iy1], sk.x[iy2]; atol=1e-4)
     end
+end
+
+@testset "circle + line + point interplay" begin
+    # Circle radius + vertical line to a fixed point should place the rim at (5,0).
+    sk = Sketch()
+    center = add_point!(sk, 0.1, 0.2)
+    rim = add_point!(sk, 4.2, 0.7)
+    anchor = add_point!(sk, 5.0, 0.0)
+
+    c1 = push!(sk, Circle(center, rim))
+    l1 = push!(sk, Line(rim, anchor))
+
+    push!(sk, FixedPoint(center, 0.0, 0.0))
+    push!(sk, FixedPoint(anchor, 5.0, 0.0))
+    push!(sk, Radius(c1, 5.0))
+    push!(sk, Vertical(l1))
+
+    stats = solve!(sk)
+    ixr, iyr = 2 * (rim - 1) + 1, 2 * (rim - 1) + 2
+    @test stats.status == :converged
+    @test isapprox(sk.x[ixr], 5.0; atol=1e-5)
+    @test isapprox(sk.x[iyr], 0.0; atol=1e-3)
 end
