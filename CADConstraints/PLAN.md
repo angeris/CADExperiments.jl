@@ -27,6 +27,7 @@ Build a fast, allocation‑minimal CAD constraint solver for interactive use. St
    - `add_point!` for points, and `push!(sketch, Line(...))` for shapes.
    - `push!(sketch, FixedPoint(...))`, `Coincident(...)`, `Parallel(...)`,
      `Horizontal(...)`, `Vertical(...)` for constraints.
+   - Avoid `push_constraint!` helpers; dispatch on `push!` is the only entrypoint.
 
 ## Phase 2: Solver Integration (SparseLNNS)
 8) **Sparsity pattern construction**
@@ -44,7 +45,8 @@ Build a fast, allocation‑minimal CAD constraint solver for interactive use. St
    - For drag edits: update `x` only, reuse constraint list and pattern.
    - For new constraints: rebuild `Jpat` and re‑initialize once.
 12) **Dirty flags**
-    - Track `structure_dirty` (pattern changed) vs `value_dirty` (x changed).
+    - Track `structure_dirty` (pattern changed) vs `value_dirty` (x/parameter changed).
+    - Do not rebuild `Problem` for value edits; reuse cached `Problem/State/Workspace`.
 
 ## Phase 4: Minimal Allocation Discipline
 13) **No additional allocations**
