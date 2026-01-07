@@ -82,12 +82,28 @@ mutable struct Sketch
     constraints::Vector{Constraint}
     m::Int
     structure_dirty::Bool
-    problem::Union{Nothing, SparseLNNS.Problem}
-    state::Union{Nothing, SparseLNNS.State}
-    work::Union{Nothing, SparseLNNS.Workspace}
+    problem::Problem
+    state::State
+    work::Workspace
 end
 
-Sketch() = Sketch(Float64[], Line[], Constraint[], 0, true, nothing, nothing, nothing)
+function empty_state_work()
+    Jpat = spzeros(Float64, 0, 0)
+    r! = function (out, x)
+        return nothing
+    end
+    J! = function (J, x)
+        return nothing
+    end
+    problem = Problem(r!, J!, Jpat)
+    state, work = initialize(problem, Float64[])
+    return problem, state, work
+end
+
+function Sketch()
+    problem, state, work = empty_state_work()
+    return Sketch(Float64[], Line[], Constraint[], 0, true, problem, state, work)
+end
 
 @inline function point_indices(p)
     ix = 2 * (p - 1) + 1
@@ -101,9 +117,6 @@ end
 
 @inline function mark_dirty!(sketch::Sketch)
     sketch.structure_dirty = true
-    sketch.problem = nothing
-    sketch.state = nothing
-    sketch.work = nothing
     return nothing
 end
 
@@ -388,7 +401,7 @@ function build_problem!(sketch::Sketch)
         return nothing
     end
 
-    sketch.problem = SparseLNNS.Problem(r!, J!, Jpat)
+    sketch.problem = Problem(r!, J!, Jpat)
     sketch.structure_dirty = false
     return sketch.problem
 end
@@ -398,10 +411,10 @@ end
 
 Solve the current constraint system and update `sketch.x` in place.
 """
-function solve!(sketch::Sketch; options=SparseLNNS.Options())
-    if sketch.problem === nothing || sketch.structure_dirty
+function solve!(sketch::Sketch; options=Options())
+    if sketch.structure_dirty
         build_problem!(sketch)
-        sketch.state, sketch.work = SparseLNNS.initialize(sketch.problem, sketch.x; options=options)
+        sketch.state, sketch.work = initialize(sketch.problem, sketch.x; options=options)
     else
         copyto!(sketch.state.x, sketch.x)
     end
