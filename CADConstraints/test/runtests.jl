@@ -88,6 +88,40 @@ end
     @test isapprox(sk.x[iy1], 2.0; atol=1e-6)
 end
 
+@testset "tangent via normal + circle coincident" begin
+    # Tangency can be built from a normal line + point-on-circle.
+    sk = Sketch()
+    center = add_point!(sk, 0.0, 0.0)
+    rim = add_point!(sk, 0.0, 2.0)
+    contact = add_point!(sk, 0.2, 1.8)
+    normal_aux = add_point!(sk, 0.2, 3.2)
+    tangent_aux = add_point!(sk, 3.2, 1.0)
+    anchor = add_point!(sk, 3.0, 0.0)
+
+    c1 = push!(sk, Circle(center, rim))
+    l1 = push!(sk, Line(contact, normal_aux))
+    l2 = push!(sk, Line(contact, tangent_aux))
+    l3 = push!(sk, Line(tangent_aux, anchor))
+
+    push!(sk, FixedPoint(center, 0.0, 0.0))
+    push!(sk, FixedPoint(rim, 0.0, 2.0))
+    push!(sk, FixedPoint(anchor, 3.0, 0.0))
+    push!(sk, CircleCoincident(c1, contact))
+    push!(sk, Normal(c1, l1))
+    push!(sk, Vertical(l1))
+    push!(sk, Horizontal(l2))
+    push!(sk, Vertical(l3))
+
+    stats = solve!(sk; options=LOG_TIGHT_OPTIONS)
+    ixc, iyc = 2 * (contact - 1) + 1, 2 * (contact - 1) + 2
+    ixt, iyt = 2 * (tangent_aux - 1) + 1, 2 * (tangent_aux - 1) + 2
+    @test stats.status == :converged
+    @test isapprox(sk.x[ixc], 0.0; atol=1e-6)
+    @test isapprox(sk.x[iyc], 2.0; atol=1e-6)
+    @test isapprox(sk.x[ixt], 3.0; atol=1e-6)
+    @test isapprox(sk.x[iyt], 2.0; atol=1e-6)
+end
+
 @testset "circle normal constraint" begin
     # A line constrained normal to a circle must pass through the center (p2 -> (0,0)).
     sk = Sketch()
@@ -141,6 +175,57 @@ end
     @test isapprox(sk.x[iy1], 0.0; atol=1e-6)
     @test isapprox(sk.x[ix2], 0.0; atol=1e-6)
     @test isapprox(sk.x[iy2], 2.0; atol=1e-6)
+end
+
+@testset "wiggle warm start" begin
+    # Perturb a fixed anchor and re-solve to test warm-started updates.
+    sk = Sketch()
+    p1 = add_point!(sk, -0.1, 0.1)
+    p2 = add_point!(sk, 4.1, -0.1)
+    p3 = add_point!(sk, 4.2, 3.0)
+    p4 = add_point!(sk, -0.1, 3.1)
+
+    l1 = push!(sk, Line(p1, p2))
+    l2 = push!(sk, Line(p2, p3))
+    l3 = push!(sk, Line(p3, p4))
+    l4 = push!(sk, Line(p4, p1))
+
+    push!(sk, FixedPoint(p1, 0.0, 0.0))
+    push!(sk, FixedPoint(p2, 4.0, 0.0))
+    push!(sk, FixedPoint(p4, 0.0, 3.0))
+
+    push!(sk, Horizontal(l1))
+    push!(sk, Vertical(l2))
+    push!(sk, Horizontal(l3))
+    push!(sk, Vertical(l4))
+
+    center = add_point!(sk, 1.1, 1.0)
+    rim = add_point!(sk, 1.1, 3.0)
+    p5 = add_point!(sk, 2.8, 1.2)
+    c1 = push!(sk, Circle(center, rim))
+    l5 = push!(sk, Line(center, rim))
+
+    push!(sk, FixedPoint(center, 1.0, 1.0))
+    push!(sk, Diameter(c1, 4.0))
+    push!(sk, Vertical(l5))
+    push!(sk, CircleCoincident(c1, p5))
+
+    stats = solve!(sk; options=LOG_OPTIONS)
+    @test stats.status == :converged
+
+    max_iters = 0
+    for k in 1:10
+        dx = 0.05 * sin(0.2 * k)
+        dy = 0.05 * cos(0.2 * k)
+        set_point!(sk, p1, dx, dy)
+        stats = solve!(sk; options=LOG_OPTIONS)
+        max_iters = max(max_iters, stats.iters)
+        @test stats.status == :converged
+        ix1, iy1 = 2 * (p1 - 1) + 1, 2 * (p1 - 1) + 2
+        @test isapprox(sk.x[ix1], 0.0; atol=1e-6)
+        @test isapprox(sk.x[iy1], 0.0; atol=1e-6)
+    end
+    @test max_iters >= 1
 end
 
 @testset "value updates reuse problem" begin
