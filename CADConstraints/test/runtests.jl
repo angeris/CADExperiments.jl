@@ -2,6 +2,7 @@ using Test
 using CADConstraints
 
 @testset "points + lines constraints" begin
+    # Three points with a horizontal and vertical line; p2 should land at (2, 0).
     sk = Sketch()
     p1 = add_point!(sk, 0.0, 0.0)
     p2 = add_point!(sk, 0.4, 0.2)
@@ -20,4 +21,74 @@ using CADConstraints
     @test stats.status == :converged
     @test isapprox(sk.x[ix2], 2.0; atol=1e-5)
     @test isapprox(sk.x[iy2], 0.0; atol=1e-5)
+end
+
+@testset "value updates reuse problem" begin
+    # Update a point in-place without structural edits; no allocations and no rebuild.
+    sk = Sketch()
+    p1 = add_point!(sk, -0.2, 0.1)
+    p2 = add_point!(sk, 2.4, 0.8)
+    push!(sk, FixedPoint(p1, 0.0, 0.0))
+    push!(sk, FixedPoint(p2, 2.0, 1.0))
+
+    stats = solve!(sk)
+    @test stats.status == :converged
+    old_problem = sk.problem
+
+    alloc = @allocated set_point!(sk, p2, 4.0, -3.0)
+    @test alloc == 0
+    @test sk.structure_dirty == false
+    @test sk.value_dirty == true
+
+    stats = solve!(sk)
+    @test stats.status == :converged
+    @test sk.problem === old_problem
+end
+
+@testset "complex sketch constraints" begin
+    # Rectangle with duplicated corner points tied by coincident + parallel constraints.
+    sk = Sketch()
+    p1a = add_point!(sk, -0.2, 0.1)
+    p1b = add_point!(sk, 0.1, -0.1)
+    p2a = add_point!(sk, 4.1, 0.2)
+    p2b = add_point!(sk, 3.9, -0.2)
+    p3a = add_point!(sk, 4.2, 3.1)
+    p3b = add_point!(sk, 3.8, 2.9)
+    p4a = add_point!(sk, -0.1, 3.2)
+    p4b = add_point!(sk, 0.2, 2.8)
+
+    l1 = push!(sk, Line(p1a, p2a)) # bottom
+    l2 = push!(sk, Line(p2b, p3a)) # right
+    l3 = push!(sk, Line(p3b, p4a)) # top
+    l4 = push!(sk, Line(p4b, p1b)) # left
+
+    push!(sk, Coincident(p1a, p1b))
+    push!(sk, Coincident(p2a, p2b))
+    push!(sk, Coincident(p3a, p3b))
+    push!(sk, Coincident(p4a, p4b))
+
+    push!(sk, FixedPoint(p1a, 0.0, 0.0))
+    push!(sk, FixedPoint(p2a, 4.0, 0.0))
+    push!(sk, FixedPoint(p4a, 0.0, 3.0))
+
+    push!(sk, Horizontal(l1))
+    push!(sk, Vertical(l2))
+    push!(sk, Horizontal(l3))
+    push!(sk, Vertical(l4))
+    push!(sk, Parallel(l1, l3))
+    push!(sk, Parallel(l2, l4))
+
+    stats = solve!(sk)
+    @test stats.status == :converged
+
+    ix3a, iy3a = 2 * (p3a - 1) + 1, 2 * (p3a - 1) + 2
+    @test isapprox(sk.x[ix3a], 4.0; atol=1e-4)
+    @test isapprox(sk.x[iy3a], 3.0; atol=1e-4)
+
+    for (pa, pb) in ((p1a, p1b), (p2a, p2b), (p3a, p3b), (p4a, p4b))
+        ix1, iy1 = 2 * (pa - 1) + 1, 2 * (pa - 1) + 2
+        ix2, iy2 = 2 * (pb - 1) + 1, 2 * (pb - 1) + 2
+        @test isapprox(sk.x[ix1], sk.x[ix2]; atol=1e-4)
+        @test isapprox(sk.x[iy1], sk.x[iy2]; atol=1e-4)
+    end
 end
