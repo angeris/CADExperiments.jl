@@ -3,6 +3,7 @@ module CADSketchUI
 import CImGui as ig
 import GLFW
 import ModernGL
+import CADConstraints
 
 export run
 
@@ -25,11 +26,20 @@ end
     return (x, y)
 end
 
+@inline function point_count(sketch)
+    return length(sketch.x) ÷ 2
+end
+
+@inline function point_xy(sketch, p)
+    i = 2 * (p - 1) + 1
+    return (sketch.x[i], sketch.x[i + 1])
+end
+
 @inline function color_u32(r::Float32, g::Float32, b::Float32, a::Float32 = 1.0f0)
     return ig.GetColorU32(ig.ImVec4(r, g, b, a))
 end
 
-function draw_sketch!(points, lines, selected, hovered, center, scale)
+function draw_sketch!(sketch, selected, hovered, center, scale)
     vp = unsafe_load(ig.GetMainViewport())
     ig.SetNextWindowPos((vp.Pos.x, vp.Pos.y))
     ig.SetNextWindowSize((vp.Size.x, vp.Size.y))
@@ -86,8 +96,8 @@ function draw_sketch!(points, lines, selected, hovered, center, scale)
 
     hovered[] = 0
     hit_radius = 8.0f0
-    for (idx, p) in enumerate(points)
-        sp = world_to_screen(p, origin, center[], scale_f)
+    for idx in 1:point_count(sketch)
+        sp = world_to_screen(point_xy(sketch, idx), origin, center[], scale_f)
         if dist2(sp, mouse) <= hit_radius * hit_radius
             hovered[] = idx
             break
@@ -98,14 +108,14 @@ function draw_sketch!(points, lines, selected, hovered, center, scale)
         selected[] = hovered[]
     end
 
-    for (i, j) in lines
-        p1 = world_to_screen(points[i], origin, center[], scale_f)
-        p2 = world_to_screen(points[j], origin, center[], scale_f)
+    for line in sketch.lines
+        p1 = world_to_screen(point_xy(sketch, line.p1), origin, center[], scale_f)
+        p2 = world_to_screen(point_xy(sketch, line.p2), origin, center[], scale_f)
         ig.AddLine(draw_list, p1, p2, color_u32(0.55f0, 0.65f0, 0.75f0), 2.0f0)
     end
 
-    for (idx, p) in enumerate(points)
-        sp = world_to_screen(p, origin, center[], scale_f)
+    for idx in 1:point_count(sketch)
+        sp = world_to_screen(point_xy(sketch, idx), origin, center[], scale_f)
         if idx == selected[]
             color = color_u32(0.95f0, 0.70f0, 0.20f0)
         elseif idx == hovered[]
@@ -167,22 +177,26 @@ end
 """
     run(; window_size=(640, 480), window_title="CADSketchUI")
 
-Open a minimal sketch window with a canvas and a few placeholder points/lines.
+Open a minimal sketch window with a canvas and a placeholder sketch.
 This is the first UI checkpoint (canvas + selection + pan/zoom).
 """
 function run(; window_size=(640, 480), window_title="CADSketchUI")
     ig.set_backend(:GlfwOpenGL3)
     ctx = ig.CreateContext()
 
-    points = [(-1.0, 0.0), (1.0, 0.0), (0.0, 1.2)]
-    lines = [(1, 2), (2, 3)]
+    sketch = CADConstraints.Sketch()
+    p1 = CADConstraints.add_point!(sketch, -1.0, 0.0)
+    p2 = CADConstraints.add_point!(sketch, 1.0, 0.0)
+    p3 = CADConstraints.add_point!(sketch, 0.0, 1.2)
+    push!(sketch, CADConstraints.Line(p1, p2))
+    push!(sketch, CADConstraints.Line(p2, p3))
     selected = Ref(0)
     hovered = Ref(0)
     center = Ref((0.0, 0.0))
     scale = Ref(80.0)
 
     ig.render(ctx; window_size=window_size, window_title=window_title) do
-        draw_sketch!(points, lines, selected, hovered, center, scale)
+        draw_sketch!(sketch, selected, hovered, center, scale)
         draw_toolbar!()
     end
     return nothing
