@@ -5,8 +5,8 @@ using SparseLNNS
 
 import Base: push!
 
-export Shape, Constraint, Line, Circle
-export FixedPoint, Coincident, Horizontal, Vertical, Parallel, Distance, Diameter
+export Shape, Constraint, Line, Circle, Arc
+export FixedPoint, Coincident, Horizontal, Vertical, Parallel, Distance, Diameter, Tangent, Normal
 export Sketch, add_point!, set_point!, build_problem!, solve!
 
 abstract type Shape end
@@ -30,6 +30,17 @@ Circle shape defined by center and rim point indices.
 struct Circle <: Shape
     center::Int
     rim::Int
+end
+
+"""
+    Arc(center, start, finish)
+
+Arc shape defined by center, start, and end point indices.
+"""
+struct Arc <: Shape
+    center::Int
+    start::Int
+    finish::Int
 end
 
 """
@@ -103,6 +114,26 @@ struct Diameter{T<:Real} <: Constraint
 end
 
 """
+    Tangent(circle, line)
+
+Constrain a line to be tangent to a circle.
+"""
+struct Tangent <: Constraint
+    circle::Int
+    line::Int
+end
+
+"""
+    Normal(circle, line)
+
+Constrain a line to pass through a circle center (normal direction).
+"""
+struct Normal <: Constraint
+    circle::Int
+    line::Int
+end
+
+"""
     Sketch()
 
 Container for points, shapes, constraints, and cached solver state.
@@ -110,6 +141,7 @@ Container for points, shapes, constraints, and cached solver state.
 mutable struct Sketch
     x::Vector{Float64}
     circles::Vector{Circle}
+    arcs::Vector{Arc}
     lines::Vector{Line}
     constraints::Vector{Constraint}
     structure_dirty::Bool
@@ -134,7 +166,7 @@ end
 
 function Sketch()
     problem, state, work = empty_state_work()
-    return Sketch(Float64[], Circle[], Line[], Constraint[], true, false, problem, state, work)
+    return Sketch(Float64[], Circle[], Arc[], Line[], Constraint[], true, false, problem, state, work)
 end
 
 @inline function point_indices(p)
@@ -200,6 +232,12 @@ function push!(sketch::Sketch, circle::Circle)
     return length(sketch.circles)
 end
 
+function push!(sketch::Sketch, arc::Arc)
+    push!(sketch.arcs, arc)
+    mark_structure_dirty!(sketch)
+    return length(sketch.arcs)
+end
+
 constraint_rows(::FixedPoint) = 2
 constraint_rows(::Coincident) = 2
 constraint_rows(::Horizontal) = 1
@@ -207,6 +245,8 @@ constraint_rows(::Vertical) = 1
 constraint_rows(::Parallel) = 1
 constraint_rows(::Distance) = 1
 constraint_rows(::Diameter) = 1
+constraint_rows(::Tangent) = 1
+constraint_rows(::Normal) = 1
 
 function push!(sketch::Sketch, constraint::FixedPoint)
     push!(sketch.constraints, constraint)
@@ -269,6 +309,28 @@ function push!(sketch::Sketch, constraint::Distance)
 end
 
 function push!(sketch::Sketch, constraint::Diameter)
+    push!(sketch.constraints, constraint)
+    mark_structure_dirty!(sketch)
+    return constraint
+end
+
+function push!(sketch::Sketch, constraint::Tangent)
+    p1, p2 = line_points(sketch, constraint.line)
+    if p1 == p2
+        push!(sketch, Coincident(p1, p2))
+        return constraint
+    end
+    push!(sketch.constraints, constraint)
+    mark_structure_dirty!(sketch)
+    return constraint
+end
+
+function push!(sketch::Sketch, constraint::Normal)
+    p1, p2 = line_points(sketch, constraint.line)
+    if p1 == p2
+        push!(sketch, Coincident(p1, p2))
+        return constraint
+    end
     push!(sketch.constraints, constraint)
     mark_structure_dirty!(sketch)
     return constraint
@@ -348,6 +410,39 @@ function pattern!(Jpat, constraint::Diameter, sketch, offset)
     return nothing
 end
 
+function pattern!(Jpat, constraint::Tangent, sketch, offset)
+    center, rim = circle_points(sketch, constraint.circle)
+    p1, p2 = line_points(sketch, constraint.line)
+    ix1, iy1 = point_indices(p1)
+    ix2, iy2 = point_indices(p2)
+    icx, icy = point_indices(center)
+    irx, iry = point_indices(rim)
+    Jpat[offset + 1, ix1] = 1.0
+    Jpat[offset + 1, iy1] = 1.0
+    Jpat[offset + 1, ix2] = 1.0
+    Jpat[offset + 1, iy2] = 1.0
+    Jpat[offset + 1, icx] = 1.0
+    Jpat[offset + 1, icy] = 1.0
+    Jpat[offset + 1, irx] = 1.0
+    Jpat[offset + 1, iry] = 1.0
+    return nothing
+end
+
+function pattern!(Jpat, constraint::Normal, sketch, offset)
+    center, _ = circle_points(sketch, constraint.circle)
+    p1, p2 = line_points(sketch, constraint.line)
+    ix1, iy1 = point_indices(p1)
+    ix2, iy2 = point_indices(p2)
+    icx, icy = point_indices(center)
+    Jpat[offset + 1, ix1] = 1.0
+    Jpat[offset + 1, iy1] = 1.0
+    Jpat[offset + 1, ix2] = 1.0
+    Jpat[offset + 1, iy2] = 1.0
+    Jpat[offset + 1, icx] = 1.0
+    Jpat[offset + 1, icy] = 1.0
+    return nothing
+end
+
 function residual!(out, x, constraint::FixedPoint, sketch, offset)
     ix, iy = point_indices(constraint.p)
     out[offset + 1] = x[ix] - constraint.x
@@ -411,6 +506,41 @@ function residual!(out, x, constraint::Diameter, sketch, offset)
     dy = x[iy2] - x[iy1]
     r2 = 0.25 * constraint.d * constraint.d
     out[offset + 1] = dx * dx + dy * dy - r2
+    return nothing
+end
+
+function residual!(out, x, constraint::Tangent, sketch, offset)
+    center, rim = circle_points(sketch, constraint.circle)
+    p1, p2 = line_points(sketch, constraint.line)
+    ix1, iy1 = point_indices(p1)
+    ix2, iy2 = point_indices(p2)
+    icx, icy = point_indices(center)
+    irx, iry = point_indices(rim)
+    dx = x[ix2] - x[ix1]
+    dy = x[iy2] - x[iy1]
+    dx1 = x[icx] - x[ix1]
+    dy1 = x[icy] - x[iy1]
+    cross = dx * dy1 - dy * dx1
+    len2 = dx * dx + dy * dy
+    drx = x[irx] - x[icx]
+    dry = x[iry] - x[icy]
+    r2 = drx * drx + dry * dry
+    # Tangency without division: cross^2 = r^2 * ||line||^2.
+    out[offset + 1] = cross * cross - r2 * len2
+    return nothing
+end
+
+function residual!(out, x, constraint::Normal, sketch, offset)
+    center, _ = circle_points(sketch, constraint.circle)
+    p1, p2 = line_points(sketch, constraint.line)
+    ix1, iy1 = point_indices(p1)
+    ix2, iy2 = point_indices(p2)
+    icx, icy = point_indices(center)
+    dx = x[ix2] - x[ix1]
+    dy = x[iy2] - x[iy1]
+    dx1 = x[icx] - x[ix1]
+    dy1 = x[icy] - x[iy1]
+    out[offset + 1] = dx * dy1 - dy * dx1
     return nothing
 end
 
@@ -493,6 +623,65 @@ function jacobian!(J, x, constraint::Diameter, sketch, offset)
     J[offset + 1, iy1] = -2.0 * dy
     J[offset + 1, ix2] = 2.0 * dx
     J[offset + 1, iy2] = 2.0 * dy
+    return nothing
+end
+
+function jacobian!(J, x, constraint::Tangent, sketch, offset)
+    center, rim = circle_points(sketch, constraint.circle)
+    p1, p2 = line_points(sketch, constraint.line)
+    ix1, iy1 = point_indices(p1)
+    ix2, iy2 = point_indices(p2)
+    icx, icy = point_indices(center)
+    irx, iry = point_indices(rim)
+    x1 = x[ix1]
+    y1 = x[iy1]
+    x2 = x[ix2]
+    y2 = x[iy2]
+    cx = x[icx]
+    cy = x[icy]
+    rx = x[irx]
+    ry = x[iry]
+    dx = x2 - x1
+    dy = y2 - y1
+    dx1 = cx - x1
+    dy1 = cy - y1
+    cross = dx * dy1 - dy * dx1
+    len2 = dx * dx + dy * dy
+    drx = rx - cx
+    dry = ry - cy
+    r2 = drx * drx + dry * dry
+    two_cross = 2.0 * cross
+    J[offset + 1, ix1] = two_cross * (y2 - cy) + 2.0 * r2 * dx
+    J[offset + 1, iy1] = two_cross * (cx - x2) + 2.0 * r2 * dy
+    J[offset + 1, ix2] = two_cross * (cy - y1) - 2.0 * r2 * dx
+    J[offset + 1, iy2] = two_cross * (x1 - cx) - 2.0 * r2 * dy
+    J[offset + 1, icx] = -two_cross * dy + 2.0 * drx * len2
+    J[offset + 1, icy] = two_cross * dx + 2.0 * dry * len2
+    J[offset + 1, irx] = -2.0 * drx * len2
+    J[offset + 1, iry] = -2.0 * dry * len2
+    return nothing
+end
+
+function jacobian!(J, x, constraint::Normal, sketch, offset)
+    center, _ = circle_points(sketch, constraint.circle)
+    p1, p2 = line_points(sketch, constraint.line)
+    ix1, iy1 = point_indices(p1)
+    ix2, iy2 = point_indices(p2)
+    icx, icy = point_indices(center)
+    x1 = x[ix1]
+    y1 = x[iy1]
+    x2 = x[ix2]
+    y2 = x[iy2]
+    cx = x[icx]
+    cy = x[icy]
+    dx = x2 - x1
+    dy = y2 - y1
+    J[offset + 1, ix1] = y2 - cy
+    J[offset + 1, iy1] = cx - x2
+    J[offset + 1, ix2] = cy - y1
+    J[offset + 1, iy2] = x1 - cx
+    J[offset + 1, icx] = -dy
+    J[offset + 1, icy] = dx
     return nothing
 end
 """

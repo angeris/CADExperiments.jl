@@ -3,6 +3,7 @@ using CADConstraints
 using SparseLNNS: Options
 
 const LOG_OPTIONS = Options(log=true)
+const LOG_TIGHT_OPTIONS = Options(log=true, atol=1e-10, rtol=1e-10, gtol=1e-10, max_iters=100)
 
 @testset "points + lines constraints" begin
     # Three points with a horizontal and vertical line; p2 should land at (2, 0).
@@ -19,7 +20,7 @@ const LOG_OPTIONS = Options(log=true)
     push!(sk, Horizontal(l1))
     push!(sk, Vertical(l2))
 
-    stats = solve!(sk; options=LOG_OPTIONS)
+    stats = solve!(sk; options=LOG_TIGHT_OPTIONS)
     ix2, iy2 = 2 * (p2 - 1) + 1, 2 * (p2 - 1) + 2
     @test stats.status == :converged
     @test isapprox(sk.x[ix2], 2.0; atol=1e-8)
@@ -61,6 +62,95 @@ end
     @test stats.status == :converged
     @test isapprox(abs(sk.x[ixr]), 5.0; atol=1e-8)
     @test isapprox(sk.x[iyr], 0.0; atol=1e-8)
+end
+
+@testset "circle tangent constraint" begin
+    # Horizontal line tangent to a radius-2 circle should settle at y=2.
+    sk = Sketch()
+    center = add_point!(sk, 0.0, 0.0)
+    rim = add_point!(sk, 0.0, 2.0)
+    p1 = add_point!(sk, 3.0, 3.0)
+    p2 = add_point!(sk, 5.0, 3.0)
+    anchor1 = add_point!(sk, 3.0, 0.0)
+    anchor2 = add_point!(sk, 5.0, 0.0)
+
+    c1 = push!(sk, Circle(center, rim))
+    l1 = push!(sk, Line(p1, p2))
+    l2 = push!(sk, Line(p1, anchor1))
+    l3 = push!(sk, Line(p2, anchor2))
+
+    push!(sk, FixedPoint(center, 0.0, 0.0))
+    push!(sk, FixedPoint(rim, 0.0, 2.0))
+    push!(sk, FixedPoint(anchor1, 3.0, 0.0))
+    push!(sk, FixedPoint(anchor2, 5.0, 0.0))
+    push!(sk, Vertical(l2))
+    push!(sk, Vertical(l3))
+    push!(sk, Horizontal(l1))
+    push!(sk, Tangent(c1, l1))
+
+    stats = solve!(sk; options=LOG_TIGHT_OPTIONS)
+    ix1, iy1 = 2 * (p1 - 1) + 1, 2 * (p1 - 1) + 2
+    ix2, iy2 = 2 * (p2 - 1) + 1, 2 * (p2 - 1) + 2
+    @test stats.status == :converged
+    @test isapprox(sk.x[ix1], 3.0; atol=1e-6)
+    @test isapprox(sk.x[ix2], 5.0; atol=1e-6)
+    @test isapprox(sk.x[iy1], 2.0; atol=1e-6)
+    @test isapprox(sk.x[iy2], 2.0; atol=1e-6)
+end
+
+@testset "circle normal constraint" begin
+    # A line constrained normal to a circle must pass through the center (p2 -> (0,0)).
+    sk = Sketch()
+    center = add_point!(sk, 0.0, 0.0)
+    rim = add_point!(sk, 1.0, 0.0)
+    p1 = add_point!(sk, 2.0, 1.0)
+    p2 = add_point!(sk, 0.0, 2.0)
+    pfix = add_point!(sk, 0.0, -1.0)
+
+    c1 = push!(sk, Circle(center, rim))
+    l1 = push!(sk, Line(p1, p2))
+    l2 = push!(sk, Line(p2, pfix))
+
+    push!(sk, FixedPoint(center, 0.0, 0.0))
+    push!(sk, FixedPoint(rim, 1.0, 0.0))
+    push!(sk, FixedPoint(p1, 2.0, 1.0))
+    push!(sk, FixedPoint(pfix, 0.0, -1.0))
+    push!(sk, Vertical(l2))
+    push!(sk, Normal(c1, l1))
+
+    stats = solve!(sk; options=LOG_OPTIONS)
+    ix2, iy2 = 2 * (p2 - 1) + 1, 2 * (p2 - 1) + 2
+    @test stats.status == :converged
+    @test isapprox(sk.x[ix2], 0.0; atol=1e-6)
+    @test isapprox(sk.x[iy2], 0.0; atol=1e-6)
+end
+
+@testset "arc shape endpoints" begin
+    # Arc endpoints constrained to a radius-2 circle: start (2,0) and end (0,2).
+    sk = Sketch()
+    center = add_point!(sk, 0.1, -0.1)
+    start = add_point!(sk, 1.9, 0.1)
+    finish = add_point!(sk, -0.2, 1.8)
+
+    arc = push!(sk, Arc(center, start, finish))
+    l1 = push!(sk, Line(center, start))
+    l2 = push!(sk, Line(center, finish))
+
+    push!(sk, FixedPoint(center, 0.0, 0.0))
+    push!(sk, Horizontal(l1))
+    push!(sk, Vertical(l2))
+    push!(sk, Distance(center, start, 2.0))
+    push!(sk, Distance(center, finish, 2.0))
+
+    stats = solve!(sk; options=LOG_OPTIONS)
+    ix1, iy1 = 2 * (start - 1) + 1, 2 * (start - 1) + 2
+    ix2, iy2 = 2 * (finish - 1) + 1, 2 * (finish - 1) + 2
+    @test stats.status == :converged
+    @test sk.arcs[arc] == Arc(center, start, finish)
+    @test isapprox(sk.x[ix1], 2.0; atol=1e-6)
+    @test isapprox(sk.x[iy1], 0.0; atol=1e-6)
+    @test isapprox(sk.x[ix2], 0.0; atol=1e-6)
+    @test isapprox(sk.x[iy2], 2.0; atol=1e-6)
 end
 
 @testset "value updates reuse problem" begin
