@@ -7,7 +7,7 @@ import Base: push!
 
 export Shape, Constraint, Line
 export FixedPoint, Coincident, Horizontal, Vertical, Parallel
-export Sketch, add_point!, build_problem!, solve!
+export Sketch, add_point!, set_point!, build_problem!, solve!
 
 abstract type Shape end
 abstract type Constraint end
@@ -81,6 +81,7 @@ mutable struct Sketch
     lines::Vector{Line}
     constraints::Vector{Constraint}
     structure_dirty::Bool
+    value_dirty::Bool
     problem::Problem
     state::State
     work::Workspace
@@ -101,7 +102,7 @@ end
 
 function Sketch()
     problem, state, work = empty_state_work()
-    return Sketch(Float64[], Line[], Constraint[], true, problem, state, work)
+    return Sketch(Float64[], Line[], Constraint[], true, false, problem, state, work)
 end
 
 @inline function point_indices(p)
@@ -114,8 +115,14 @@ end
     return line.p1, line.p2
 end
 
-@inline function mark_dirty!(sketch::Sketch)
+@inline function mark_structure_dirty!(sketch::Sketch)
     sketch.structure_dirty = true
+    sketch.value_dirty = true
+    return nothing
+end
+
+@inline function mark_value_dirty!(sketch::Sketch)
+    sketch.value_dirty = true
     return nothing
 end
 
@@ -127,13 +134,26 @@ Append a point `(x, y)` and return its 1-based index.
 function add_point!(sketch::Sketch, x, y)
     push!(sketch.x, Float64(x))
     push!(sketch.x, Float64(y))
-    mark_dirty!(sketch)
+    mark_structure_dirty!(sketch)
     return length(sketch.x) ÷ 2
+end
+
+"""
+    set_point!(sketch, p, x, y)
+
+Update point `p` to `(x, y)` without changing structure.
+"""
+function set_point!(sketch::Sketch, p, x, y)
+    ix, iy = point_indices(p)
+    sketch.x[ix] = Float64(x)
+    sketch.x[iy] = Float64(y)
+    mark_value_dirty!(sketch)
+    return nothing
 end
 
 function push!(sketch::Sketch, line::Line)
     push!(sketch.lines, line)
-    mark_dirty!(sketch)
+    mark_structure_dirty!(sketch)
     return length(sketch.lines)
 end
 
@@ -145,7 +165,7 @@ constraint_rows(::Parallel) = 1
 
 function push!(sketch::Sketch, constraint::FixedPoint)
     push!(sketch.constraints, constraint)
-    mark_dirty!(sketch)
+    mark_structure_dirty!(sketch)
     return constraint
 end
 
@@ -154,7 +174,7 @@ function push!(sketch::Sketch, constraint::Coincident)
         return constraint
     end
     push!(sketch.constraints, constraint)
-    mark_dirty!(sketch)
+    mark_structure_dirty!(sketch)
     return constraint
 end
 
@@ -165,7 +185,7 @@ function push!(sketch::Sketch, constraint::Horizontal)
         return constraint
     end
     push!(sketch.constraints, constraint)
-    mark_dirty!(sketch)
+    mark_structure_dirty!(sketch)
     return constraint
 end
 
@@ -176,7 +196,7 @@ function push!(sketch::Sketch, constraint::Vertical)
         return constraint
     end
     push!(sketch.constraints, constraint)
-    mark_dirty!(sketch)
+    mark_structure_dirty!(sketch)
     return constraint
 end
 
@@ -193,7 +213,7 @@ function push!(sketch::Sketch, constraint::Parallel)
         return constraint
     end
     push!(sketch.constraints, constraint)
-    mark_dirty!(sketch)
+    mark_structure_dirty!(sketch)
     return constraint
 end
 
@@ -408,8 +428,10 @@ function solve!(sketch::Sketch; options=Options())
     if sketch.structure_dirty
         build_problem!(sketch)
         sketch.state, sketch.work = initialize(sketch.problem, sketch.x; options=options)
-    else
+        sketch.value_dirty = false
+    elseif sketch.value_dirty
         copyto!(sketch.state.x, sketch.x)
+        sketch.value_dirty = false
     end
     stats = SparseLNNS.solve!(sketch.state, sketch.problem, sketch.work; options=options)
     copyto!(sketch.x, sketch.state.x)
