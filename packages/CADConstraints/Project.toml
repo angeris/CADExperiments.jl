@@ -6,6 +6,9 @@ version = "0.1.0"
 [deps]
 SparseLNNS = "5f866e5d-c780-4b8c-babf-162a06d3e5e3"
 
+[compat]
+SparseLNNS = "0.1.0"
+
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
