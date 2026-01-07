@@ -278,6 +278,11 @@ function log_row(io, iter, cost, rnorm, gnorm, step_norm, lambda, rho)
     return nothing
 end
 
+function log_footer(io)
+    @printf(io, "------+-----------+-----------+-----------+----------+----------+-------\n")
+    return nothing
+end
+
 """
     solve!(state, problem, work; options=Options())
 
@@ -359,6 +364,9 @@ function solve!(state::State, problem::Problem, work::Workspace;
     state.lambda = lambda
     stats.cost = cost
     stats.grad_norm = gnorm
+    if log_enabled
+        log_footer(log_io)
+    end
     return stats
 end
 
