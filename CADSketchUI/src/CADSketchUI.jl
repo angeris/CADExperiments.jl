@@ -254,20 +254,24 @@ function run(; window_size=(640, 480), window_title="CADSketchUI")
     l5 = push!(sketch, CADConstraints.Line(p3, p5))
     push!(sketch, CADConstraints.Horizontal(l1))
     push!(sketch, CADConstraints.Vertical(l2))
-    push!(sketch, CADConstraints.Horizontal(l3))
-    push!(sketch, CADConstraints.Vertical(l4))
-    push!(sketch, CADConstraints.Vertical(l5))
     dx12 = x1 - x2
     dy12 = y1 - y2
     dx23 = x2 - x3
     dy23 = y2 - y3
+    dx34 = x3 - x4
+    dy34 = y3 - y4
+    dx41 = x4 - x1
+    dy41 = y4 - y1
     dx35 = x3 - x5
     dy35 = y3 - y5
     d12 = sqrt(dx12 * dx12 + dy12 * dy12)
     d23 = sqrt(dx23 * dx23 + dy23 * dy23)
+    d34 = sqrt(dx34 * dx34 + dy34 * dy34)
+    d41 = sqrt(dx41 * dx41 + dy41 * dy41)
     d35 = sqrt(dx35 * dx35 + dy35 * dy35)
     push!(sketch, CADConstraints.Distance(p1, p2, d12))
     push!(sketch, CADConstraints.Distance(p2, p3, d23))
+    push!(sketch, CADConstraints.Distance(p3, p4, d34))
     push!(sketch, CADConstraints.Distance(p3, p5, d35))
     t0 = time_ns()
     stats_ref = Ref(CADConstraints.solve!(sketch))
