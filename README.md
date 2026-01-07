@@ -1,30 +1,16 @@
-# SparseLNNS
+# Monorepo Overview
 
-SparseLNNS is a tiny, allocation‑aware Levenberg–Marquardt solver for sparse nonlinear least squares in Julia. It is designed for fixed sparsity patterns and fast repeated solves.
+This repository hosts two Julia packages:
 
-## Quick start
+- `packages/SparseLNNS`: sparse nonlinear least squares solver (Levenberg–Marquardt).
+- `packages/CADConstraints`: CAD‑style constraint system built on top of `SparseLNNS`.
 
-```julia
-using SparseArrays
-using SparseLNNS
+## Quick commands
 
-r!(out, x) = (out[1] = x[1] - 1.0)
-function J!(J, x)
-    nonzeros(J)[1] = 1.0
-    return nothing
-end
+```sh
+# SparseLNNS tests
+julia --project=packages/SparseLNNS -e 'using Pkg; Pkg.test()'
 
-Jpat = spzeros(1, 1)
-Jpat[1, 1] = 1.0
-prob = Problem(r!, J!, Jpat)
-
-state, work = initialize(prob, [0.0])
-stats = solve!(state, prob, work)
-
-println("x = ", state.x[1], " status = ", stats.status)
+# CADConstraints tests (develop SparseLNNS from the monorepo)
+julia --project=packages/CADConstraints -e 'using Pkg; Pkg.develop(path="../SparseLNNS"); Pkg.test()'
 ```
-
-## Notes
-- The Jacobian sparsity pattern is fixed; `J!` must fill values in place for that pattern.
-- Use `initialize` once and reuse `state`/`work` for repeated solves.
-- See `docs/EXAMPLES.md` for more examples and CAD‑inspired constraints.
