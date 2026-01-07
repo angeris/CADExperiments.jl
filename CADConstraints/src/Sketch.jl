@@ -63,7 +63,7 @@ end
 """
     add_point!(sketch, x, y) -> point_index
 
-Append a point `(x, y)` and return its 1-based index.
+Append a point `(x, y)` and return its index.
 """
 function add_point!(sketch::Sketch, x, y)
     push!(sketch.x, Float64(x))
