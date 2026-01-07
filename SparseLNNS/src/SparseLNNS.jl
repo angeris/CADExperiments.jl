@@ -281,7 +281,6 @@ end
 function log_footer(io, elapsed_s, alloc_bytes)
     @printf(io, "------+-----------+-----------+-----------+----------+----------+-------\n")
     @printf(io, " time: %9.3f s| alloc: %9.2f MiB\n", elapsed_s, alloc_bytes / 1024^2)
-    @printf(io, "------+-----------+-----------+-----------+----------+----------+-------\n")
     return nothing
 end
 
