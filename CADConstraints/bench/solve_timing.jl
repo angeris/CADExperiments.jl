@@ -32,14 +32,14 @@ push!(sk, Vertical(l4))
 push!(sk, Parallel(l1, l3))
 push!(sk, Parallel(l2, l4))
 
-# Circle tied to the rectangle: center at (1,1), rim fixed by radius + distance to top-right.
+# Circle tied to the rectangle: center at (1,1), rim fixed by diameter + distance to top-right.
 p5 = add_point!(sk, 1.2, 1.1)   # center
 p6 = add_point!(sk, 1.1, 3.2)   # rim
 c1 = push!(sk, Circle(p5, p6))
 l5 = push!(sk, Line(p5, p6))
 
 push!(sk, FixedPoint(p5, 1.0, 1.0))
-push!(sk, Radius(c1, 2.0))
+push!(sk, Diameter(c1, 4.0))
 push!(sk, Vertical(l5))
 push!(sk, Distance(p6, p3a, 3.0))
 

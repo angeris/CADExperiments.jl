@@ -41,8 +41,8 @@ end
     @test isapprox(sk.x[iy2], 0.0; atol=1e-8)
 end
 
-@testset "circle radius constraint" begin
-    # Constrain a circle center to (0,0) and radius to 5; lock orientation with a horizontal line.
+@testset "circle diameter constraint" begin
+    # Constrain a circle center to (0,0) and diameter to 10; lock orientation with a horizontal line.
     sk = Sketch()
     center = add_point!(sk, 0.2, -0.1)
     rim = add_point!(sk, 4.2, 1.0)
@@ -51,7 +51,7 @@ end
 
     push!(sk, FixedPoint(center, 0.0, 0.0))
     push!(sk, Horizontal(l1))
-    push!(sk, Radius(c1, 5.0))
+    push!(sk, Diameter(c1, 10.0))
 
     stats = solve!(sk)
     ixr, iyr = 2 * (rim - 1) + 1, 2 * (rim - 1) + 2
@@ -131,7 +131,7 @@ end
 end
 
 @testset "circle + line + point interplay" begin
-    # Circle radius + vertical line to a fixed point should place the rim at (5,0).
+    # Circle diameter + vertical line to a fixed point should place the rim at (5,0).
     sk = Sketch()
     center = add_point!(sk, 0.1, 0.2)
     rim = add_point!(sk, 4.2, 0.7)
@@ -145,7 +145,7 @@ end
     push!(sk, FixedPoint(center, 0.0, 0.0))
     push!(sk, Distance(center, anchor, 5.0))
     push!(sk, Horizontal(l3))
-    push!(sk, Radius(c1, 5.0))
+    push!(sk, Diameter(c1, 10.0))
     push!(sk, Vertical(l1))
     push!(sk, Horizontal(l2))
 

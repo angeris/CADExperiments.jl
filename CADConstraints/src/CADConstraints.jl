@@ -6,7 +6,7 @@ using SparseLNNS
 import Base: push!
 
 export Shape, Constraint, Line, Circle
-export FixedPoint, Coincident, Horizontal, Vertical, Parallel, Distance, Radius
+export FixedPoint, Coincident, Horizontal, Vertical, Parallel, Distance, Diameter
 export Sketch, add_point!, set_point!, build_problem!, solve!
 
 abstract type Shape end
@@ -93,13 +93,13 @@ struct Distance{T<:Real} <: Constraint
 end
 
 """
-    Radius(circle, r)
+    Diameter(circle, d)
 
-Constrain a circle's radius to `r`.
+Constrain a circle's diameter to `d`.
 """
-struct Radius{T<:Real} <: Constraint
+struct Diameter{T<:Real} <: Constraint
     circle::Int
-    r::T
+    d::T
 end
 
 """
@@ -206,7 +206,7 @@ constraint_rows(::Horizontal) = 1
 constraint_rows(::Vertical) = 1
 constraint_rows(::Parallel) = 1
 constraint_rows(::Distance) = 1
-constraint_rows(::Radius) = 1
+constraint_rows(::Diameter) = 1
 
 function push!(sketch::Sketch, constraint::FixedPoint)
     push!(sketch.constraints, constraint)
@@ -268,7 +268,7 @@ function push!(sketch::Sketch, constraint::Distance)
     return constraint
 end
 
-function push!(sketch::Sketch, constraint::Radius)
+function push!(sketch::Sketch, constraint::Diameter)
     push!(sketch.constraints, constraint)
     mark_structure_dirty!(sketch)
     return constraint
@@ -337,7 +337,7 @@ function pattern!(Jpat, constraint::Distance, sketch, offset)
     return nothing
 end
 
-function pattern!(Jpat, constraint::Radius, sketch, offset)
+function pattern!(Jpat, constraint::Diameter, sketch, offset)
     center, rim = circle_points(sketch, constraint.circle)
     ix1, iy1 = point_indices(center)
     ix2, iy2 = point_indices(rim)
@@ -403,13 +403,14 @@ function residual!(out, x, constraint::Distance, sketch, offset)
     return nothing
 end
 
-function residual!(out, x, constraint::Radius, sketch, offset)
+function residual!(out, x, constraint::Diameter, sketch, offset)
     center, rim = circle_points(sketch, constraint.circle)
     ix1, iy1 = point_indices(center)
     ix2, iy2 = point_indices(rim)
     dx = x[ix2] - x[ix1]
     dy = x[iy2] - x[iy1]
-    out[offset + 1] = dx * dx + dy * dy - constraint.r * constraint.r
+    r2 = 0.25 * constraint.d * constraint.d
+    out[offset + 1] = dx * dx + dy * dy - r2
     return nothing
 end
 
@@ -482,7 +483,7 @@ function jacobian!(J, x, constraint::Distance, sketch, offset)
     return nothing
 end
 
-function jacobian!(J, x, constraint::Radius, sketch, offset)
+function jacobian!(J, x, constraint::Diameter, sketch, offset)
     center, rim = circle_points(sketch, constraint.circle)
     ix1, iy1 = point_indices(center)
     ix2, iy2 = point_indices(rim)
