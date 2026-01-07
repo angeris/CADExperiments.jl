@@ -33,6 +33,7 @@ Build a fast, allocation‑minimal CAD constraint solver for interactive use. St
 8) **Sparsity pattern construction**
    - Build `Jpat` once from constraint structure.
    - Ensure pattern includes structural zeros that can become nonzero.
+   - TODO: optional autodiff `jacobian!` from `residual!` (e.g., ForwardDiff); keep manual Jacobians by default.
 9) **Workspace caching**
    - Allocate residual/Jacobian buffers once; reuse for repeated solves.
    - Store `SparseLNNS.State`/`Workspace` inside `Sketch`.
