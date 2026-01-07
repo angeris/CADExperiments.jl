@@ -135,14 +135,16 @@ end
     sk = Sketch()
     center = add_point!(sk, 0.1, 0.2)
     rim = add_point!(sk, 4.2, 0.7)
-    anchor = add_point!(sk, 5.0, 0.0)
+    anchor = add_point!(sk, 4.9, 0.0)
 
     c1 = push!(sk, Circle(center, rim))
     l1 = push!(sk, Line(rim, anchor))
     l2 = push!(sk, Line(center, rim))
+    l3 = push!(sk, Line(center, anchor))
 
     push!(sk, FixedPoint(center, 0.0, 0.0))
-    push!(sk, FixedPoint(anchor, 5.0, 0.0))
+    push!(sk, Distance(center, anchor, 5.0))
+    push!(sk, Horizontal(l3))
     push!(sk, Radius(c1, 5.0))
     push!(sk, Vertical(l1))
     push!(sk, Horizontal(l2))
