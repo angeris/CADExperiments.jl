@@ -55,6 +55,12 @@ mutable struct AppState
     measure_selected::Int
     measure_hovered::Int
     measure_dragging::Int
+    measure_label_hot::Int
+    measure_editing::Int
+    constraint_selected::Int
+    measure_edit_buf::Vector{UInt8}
+    measure_edit_focus::Bool
+    measure_edit_started::Bool
     center::NTuple{2, Float64}
     scale::Float64
     stats
@@ -81,6 +87,22 @@ end
     nsx /= nlen
     nsy /= nlen
     return (mouse_delta.x * nsx + mouse_delta.y * nsy) / scale_f
+end
+
+@inline function set_edit_buffer!(buf, text)
+    fill!(buf, 0x00)
+    bytes = codeunits(text)
+    n = min(length(bytes), length(buf) - 1)
+    @inbounds for i in 1:n
+        buf[i] = bytes[i]
+    end
+    return nothing
+end
+
+@inline function buffer_string(buf)
+    n = findfirst(==(0x00), buf)
+    n === nothing && (n = length(buf) + 1)
+    return String(buf[1:(n - 1)])
 end
 
 @inline function dist2_point_segment(p::ig.ImVec2, a::ig.ImVec2, b::ig.ImVec2)
@@ -213,6 +235,35 @@ end
     return nothing
 end
 
+@inline function delete_selected_constraint!(app)
+    idx = app.constraint_selected
+    if idx == 0
+        return nothing
+    end
+    if length(app.sketch.constraints) <= 1
+        return nothing
+    end
+    deleteat!(app.sketch.constraints, idx)
+    CADConstraints.mark_structure_dirty!(app.sketch)
+    app.constraint_selected = 0
+    solve_and_update!(app)
+    return nothing
+end
+
+@inline function handle_constraint_delete!(app)
+    if app.constraint_selected == 0
+        return nothing
+    end
+    io = unsafe_load(ig.GetIO())
+    if io.WantTextInput
+        return nothing
+    end
+    if ig.IsKeyPressed(ig.ImGuiKey_Delete, false) || ig.IsKeyPressed(ig.ImGuiKey_Backspace, false)
+        delete_selected_constraint!(app)
+    end
+    return nothing
+end
+
 @inline function color_u32(r::Float32, g::Float32, b::Float32, a::Float32 = 1.0f0)
     return ig.GetColorU32(ig.ImVec4(r, g, b, a))
 end
@@ -256,6 +307,11 @@ function draw_sketch!(app)
     mouse = ig.GetMousePos()
     world_mouse = screen_to_world(mouse, origin, app.center, scale_f)
     io = unsafe_load(ig.GetIO())
+    if !io.WantTextInput && ig.IsKeyPressed(ig.ImGuiKey_Escape, false)
+        app.tool = :select
+        reset_tool_state!(app)
+        ig.SetWindowFocus("Sketch")
+    end
 
     if is_hovered && ig.IsMouseDown(1)
         dx = io.MouseDelta.x
@@ -286,7 +342,38 @@ function draw_sketch!(app)
         end
     end
 
+    line_hovered = 0
+    line_best = hit_radius * hit_radius
+    for (idx, line) in enumerate(sketch.lines)
+        sp1 = world_to_screen(point_xy(sketch, line.p1), origin, app.center, scale_f)
+        sp2 = world_to_screen(point_xy(sketch, line.p2), origin, app.center, scale_f)
+        d2 = dist2_point_segment(mouse, sp1, sp2)
+        if d2 <= line_best
+            line_best = d2
+            line_hovered = idx
+        end
+    end
+
+    circle_hovered = 0
+    circle_best = hit_radius
+    for (idx, circle) in enumerate(sketch.circles)
+        spc = world_to_screen(point_xy(sketch, circle.center), origin, app.center, scale_f)
+        spr = world_to_screen(point_xy(sketch, circle.rim), origin, app.center, scale_f)
+        dxr = spr.x - spc.x
+        dyr = spr.y - spc.y
+        r = sqrt(dxr * dxr + dyr * dyr)
+        d = sqrt(dist2(mouse, spc))
+        if r > 1.0f-6
+            dr = abs(d - r)
+            if dr <= circle_best
+                circle_best = dr
+                circle_hovered = idx
+            end
+        end
+    end
+
     app.measure_hovered = 0
+    app.measure_label_hot = 0
     best_d2 = 64.0f0
     for (idx, measurement) in enumerate(measurements)
         p1 = point_xy(sketch, measurement.p1)
@@ -308,6 +395,7 @@ function draw_sketch!(app)
             maxy = mid.y + text_size.y * 0.5f0
             if mouse.x >= minx && mouse.x <= maxx && mouse.y >= miny && mouse.y <= maxy
                 d2 = 0.0f0
+                app.measure_label_hot = idx
             end
         end
         if d2 < best_d2
@@ -316,7 +404,24 @@ function draw_sketch!(app)
         end
     end
 
-    if is_hovered && ig.IsMouseClicked(0)
+    handled_click = false
+    if is_hovered && ig.IsMouseDoubleClicked(0) && app.tool == :select && app.measure_label_hot != 0
+        app.measure_editing = app.measure_label_hot
+        app.measure_selected = app.measure_label_hot
+        app.measure_dragging = 0
+        app.selected = 0
+        app.dragging = 0
+        m = measurements[app.measure_editing]
+        dx = point_xy(sketch, m.p2)[1] - point_xy(sketch, m.p1)[1]
+        dy = point_xy(sketch, m.p2)[2] - point_xy(sketch, m.p1)[2]
+        len = sqrt(dx * dx + dy * dy)
+        set_edit_buffer!(app.measure_edit_buf, @sprintf("%.3f", len))
+        app.measure_edit_focus = true
+        app.measure_edit_started = true
+        handled_click = true
+    end
+
+    if is_hovered && ig.IsMouseClicked(0) && !handled_click
         wx, wy = screen_to_world(mouse, origin, app.center, scale_f)
         if app.tool == :select
             if app.measure_hovered != 0
@@ -355,19 +460,31 @@ function draw_sketch!(app)
                 solve_and_update!(app)
             end
         elseif app.tool == :measure
-            if app.hovered == 0
+            if app.hovered == 0 && line_hovered == 0 && circle_hovered == 0
                 app.measure_start = 0
-            elseif app.measure_start == 0
-                app.measure_start = app.hovered
-            elseif app.hovered != app.measure_start
+            elseif app.hovered != 0
+                if app.measure_start == 0
+                    app.measure_start = app.hovered
+                elseif app.hovered != app.measure_start
+                    offset = 20.0 / scale_f
+                    push!(measurements, Measurement(app.measure_start, app.hovered, offset))
+                    app.selected = app.hovered
+                    app.measure_start = 0
+                end
+            elseif line_hovered != 0
+                line = sketch.lines[line_hovered]
                 offset = 20.0 / scale_f
-                push!(measurements, Measurement(app.measure_start, app.hovered, offset))
-                app.selected = app.hovered
+                push!(measurements, Measurement(line.p1, line.p2, offset))
+                app.measure_start = 0
+            elseif circle_hovered != 0
+                circle = sketch.circles[circle_hovered]
+                offset = 20.0 / scale_f
+                push!(measurements, Measurement(circle.center, circle.rim, offset))
                 app.measure_start = 0
             end
         end
     end
-    if app.tool == :select && app.measure_dragging != 0
+    if app.tool == :select && app.measure_dragging != 0 && app.measure_editing == 0
         if ig.IsMouseDown(0)
             if io.MouseDelta.x != 0 || io.MouseDelta.y != 0
                 m = measurements[app.measure_dragging]
@@ -378,7 +495,7 @@ function draw_sketch!(app)
             app.measure_dragging = 0
         end
     end
-    if app.tool == :select && app.dragging != 0
+    if app.tool == :select && app.dragging != 0 && app.measure_editing == 0
         if ig.IsMouseDown(0)
             if io.MouseDelta.x != 0 || io.MouseDelta.y != 0
                 wx, wy = screen_to_world(mouse, origin, app.center, scale_f)
@@ -419,12 +536,49 @@ function draw_sketch!(app)
         ig.AddCircle(draw_list, center_p, r, color_u32(0.30f0, 0.80f0, 0.90f0), 64, 2.0f0)
     end
 
-    for (idx, measurement) in enumerate(measurements)
-        active = idx == app.measure_selected || idx == app.measure_hovered
-        color = active ? color_u32(0.95f0, 0.80f0, 0.25f0) : color_u32(0.85f0, 0.85f0, 0.25f0)
-        draw_dimension!(draw_list, point_xy(sketch, measurement.p1), point_xy(sketch, measurement.p2),
-                        origin, app.center, scale_f, color, measurement.offset)
-    end
+        for (idx, measurement) in enumerate(measurements)
+            active = idx == app.measure_selected || idx == app.measure_hovered
+            color = active ? color_u32(0.95f0, 0.80f0, 0.25f0) : color_u32(0.85f0, 0.85f0, 0.25f0)
+            draw_dimension!(draw_list, point_xy(sketch, measurement.p1), point_xy(sketch, measurement.p2),
+                            origin, app.center, scale_f, color, measurement.offset)
+        end
+        if app.measure_editing != 0
+            m = measurements[app.measure_editing]
+            p1 = point_xy(sketch, m.p1)
+            p2 = point_xy(sketch, m.p2)
+            pts = dimension_line_points(p1, p2, origin, app.center, scale_f, m.offset)
+            if pts !== nothing
+                s1o, s2o = pts
+                dx = p2[1] - p1[1]
+                dy = p2[2] - p1[2]
+                len = sqrt(dx * dx + dy * dy)
+                label = @sprintf("%.3f", len)
+                text_size = ig.CalcTextSize(label)
+                mid = ig.ImVec2((s1o.x + s2o.x) * 0.5f0, (s1o.y + s2o.y) * 0.5f0)
+                text_pos = ig.ImVec2(mid.x - text_size.x * 0.5f0, mid.y - text_size.y * 0.5f0)
+                ig.SetCursorScreenPos(text_pos)
+                ig.SetNextItemWidth(text_size.x + 16.0f0)
+                if app.measure_edit_focus
+                    ig.SetKeyboardFocusHere()
+                    app.measure_edit_focus = false
+                end
+                flags = ig.ImGuiInputTextFlags_EnterReturnsTrue |
+                        ig.ImGuiInputTextFlags_AutoSelectAll |
+                        ig.ImGuiInputTextFlags_CharsDecimal
+                submitted = ig.InputText(@sprintf("##measure_edit_%d", app.measure_editing), app.measure_edit_buf, length(app.measure_edit_buf), flags)
+                if submitted
+                    value = tryparse(Float64, strip(buffer_string(app.measure_edit_buf)))
+                    if value !== nothing && value > 0
+                        push!(sketch, CADConstraints.Distance(m.p1, m.p2, value))
+                        solve_and_update!(app)
+                    end
+                    app.measure_editing = 0
+                elseif !app.measure_edit_started && !ig.IsItemActive() && ig.IsMouseClicked(0)
+                    app.measure_editing = 0
+                end
+                app.measure_edit_started = false
+            end
+        end
     if app.tool == :measure && app.measure_start != 0
         preview_offset = 20.0 / scale_f
         draw_dimension!(draw_list, point_xy(sketch, app.measure_start), world_mouse,
@@ -469,6 +623,9 @@ function reset_tool_state!(app)
     app.circle_center = 0
     app.measure_start = 0
     app.measure_dragging = 0
+    app.measure_editing = 0
+    app.measure_label_hot = 0
+    app.measure_edit_started = false
     app.dragging = 0
     return nothing
 end
@@ -549,7 +706,7 @@ function draw_status_panel!(app)
 
     if report.conflicted && !isempty(report.entries)
         ig.Separator()
-        ig.TextUnformatted("Top residuals")
+        ig.TextUnformatted("Conflicting constraints")
         for entry in report.entries
             ig.TextUnformatted(@sprintf("%s #%d: %.3e", String(entry.kind), entry.index, entry.norm))
         end
@@ -593,6 +750,9 @@ function draw_selection_panel!(app)
     padding = 12.0f0
     ig.SetNextWindowPos((vp.Pos.x + vp.Size.x - padding, vp.Pos.y + padding),
                         ig.ImGuiCond_Always, (1.0f0, 0.0f0))
+    if app.constraint_selected > length(sketch.constraints)
+        app.constraint_selected = 0
+    end
     max_text_w = 0.0f0
     max_label_w = 0.0f0
     max_res_w = 0.0f0
@@ -649,15 +809,22 @@ function draw_selection_panel!(app)
             label = @sprintf("%d. %s", idx, constraint_label(constraint, sketch))
             res = @sprintf("r=%.3e", residuals[idx])
             line_start = ig.GetCursorPosX()
-            ig.SetCursorPosX(line_start)
-            ig.TextUnformatted(label)
+            line_y = ig.GetCursorPosY()
+            selected = app.constraint_selected == idx
+            if ig.Selectable(label, selected, ig.ImGuiSelectableFlags_SpanAllColumns)
+                app.constraint_selected = idx
+            end
             res_w = ig.CalcTextSize(res).x
             ig.SameLine()
+            ig.SetCursorPosY(line_y)
             res_x = line_start + max_label_w + 12.0f0 + (max_res_w - res_w)
             ig.SetCursorPosX(res_x)
             ig.TextUnformatted(res)
         end
         ig.EndChild()
+    end
+    if ig.IsWindowFocused(ig.ImGuiFocusedFlags_RootAndChildWindows)
+        handle_constraint_delete!(app)
     end
 
     ig.End()
@@ -734,6 +901,12 @@ function run(; window_size=(1280, 720), window_title="CADSketchUI")
         0,
         0,
         0,
+        0,
+        0,
+        0,
+        fill(0x00, 32),
+        false,
+        false,
         (0.0, 0.0),
         80.0,
         stats,
