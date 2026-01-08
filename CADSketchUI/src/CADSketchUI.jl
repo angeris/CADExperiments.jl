@@ -36,6 +36,134 @@ end
     return (sketch.x[i], sketch.x[i + 1])
 end
 
+struct Measurement
+    p1::Int
+    p2::Int
+    offset::Float64
+end
+
+@inline function measurement_offset_delta(p1, p2, scale_f, mouse_delta)
+    dx = p2[1] - p1[1]
+    dy = p2[2] - p1[2]
+    len = sqrt(dx * dx + dy * dy)
+    if len <= 1e-9
+        return 0.0
+    end
+    nx = -dy / len
+    ny = dx / len
+    nsx = nx * scale_f
+    nsy = -ny * scale_f
+    nlen = sqrt(nsx * nsx + nsy * nsy)
+    if nlen <= 1e-6
+        return 0.0
+    end
+    nsx /= nlen
+    nsy /= nlen
+    return (mouse_delta.x * nsx + mouse_delta.y * nsy) / scale_f
+end
+
+@inline function dist2_point_segment(p::ig.ImVec2, a::ig.ImVec2, b::ig.ImVec2)
+    vx = b.x - a.x
+    vy = b.y - a.y
+    denom = vx * vx + vy * vy
+    if denom <= 1.0f-9
+        dx = p.x - a.x
+        dy = p.y - a.y
+        return dx * dx + dy * dy
+    end
+    t = ((p.x - a.x) * vx + (p.y - a.y) * vy) / denom
+    if t < 0.0f0
+        t = 0.0f0
+    elseif t > 1.0f0
+        t = 1.0f0
+    end
+    projx = a.x + t * vx
+    projy = a.y + t * vy
+    dx = p.x - projx
+    dy = p.y - projy
+    return dx * dx + dy * dy
+end
+
+@inline function dimension_line_points(p1, p2, origin, center, scale_f, offset)
+    dx = p2[1] - p1[1]
+    dy = p2[2] - p1[2]
+    len = sqrt(dx * dx + dy * dy)
+    if len <= 1e-9
+        return nothing
+    end
+    ux = dx / len
+    uy = dy / len
+    nx = -uy
+    ny = ux
+    p1o = (p1[1] + nx * offset, p1[2] + ny * offset)
+    p2o = (p2[1] + nx * offset, p2[2] + ny * offset)
+    s1o = world_to_screen(p1o, origin, center, scale_f)
+    s2o = world_to_screen(p2o, origin, center, scale_f)
+    return s1o, s2o
+end
+
+function draw_dimension!(draw_list, p1, p2, origin, center, scale_f, color, offset)
+    dx = p2[1] - p1[1]
+    dy = p2[2] - p1[2]
+    len = sqrt(dx * dx + dy * dy)
+    if len <= 1e-9
+        return
+    end
+    ux = dx / len
+    uy = dy / len
+    nx = -uy
+    ny = ux
+    s1 = world_to_screen(p1, origin, center, scale_f)
+    s2 = world_to_screen(p2, origin, center, scale_f)
+    pts = dimension_line_points(p1, p2, origin, center, scale_f, offset)
+    pts === nothing && return
+    s1o, s2o = pts
+
+    ig.AddLine(draw_list, s1, s1o, color, 1.0f0)
+    ig.AddLine(draw_list, s2, s2o, color, 1.0f0)
+
+    dxs = s2o.x - s1o.x
+    dys = s2o.y - s1o.y
+    len_s = sqrt(dxs * dxs + dys * dys)
+    if len_s <= 1e-6
+        return
+    end
+    uxs = dxs / len_s
+    uys = dys / len_s
+    pxs = -uys
+    pys = uxs
+    arrow_len = 8.0f0
+    arrow_w = 4.0f0
+
+    base1 = ig.ImVec2(s1o.x + uxs * arrow_len, s1o.y + uys * arrow_len)
+    left1 = ig.ImVec2(base1.x + pxs * arrow_w, base1.y + pys * arrow_w)
+    right1 = ig.ImVec2(base1.x - pxs * arrow_w, base1.y - pys * arrow_w)
+    ig.AddLine(draw_list, s1o, left1, color, 1.0f0)
+    ig.AddLine(draw_list, s1o, right1, color, 1.0f0)
+
+    base2 = ig.ImVec2(s2o.x - uxs * arrow_len, s2o.y - uys * arrow_len)
+    left2 = ig.ImVec2(base2.x + pxs * arrow_w, base2.y + pys * arrow_w)
+    right2 = ig.ImVec2(base2.x - pxs * arrow_w, base2.y - pys * arrow_w)
+    ig.AddLine(draw_list, s2o, left2, color, 1.0f0)
+    ig.AddLine(draw_list, s2o, right2, color, 1.0f0)
+
+    label = @sprintf("%.3f", len)
+    text_size = ig.CalcTextSize(label)
+    mid = ig.ImVec2((s1o.x + s2o.x) * 0.5f0, (s1o.y + s2o.y) * 0.5f0)
+    text_pos = ig.ImVec2(mid.x - text_size.x * 0.5f0, mid.y - text_size.y * 0.5f0)
+    gap = text_size.x * 0.5f0 + 6.0f0
+    if len_s > 2.0f0 * gap
+        left = ig.ImVec2(mid.x - uxs * gap, mid.y - uys * gap)
+        right = ig.ImVec2(mid.x + uxs * gap, mid.y + uys * gap)
+        ig.AddLine(draw_list, s1o, left, color, 1.5f0)
+        ig.AddLine(draw_list, right, s2o, color, 1.5f0)
+    else
+        ig.AddLine(draw_list, s1o, s2o, color, 1.5f0)
+    end
+    ig.AddText(draw_list, text_pos, color, label)
+    return nothing
+end
+
 @inline function constraint_residuals!(out, sketch)
     resize!(out, length(sketch.constraints))
     if sketch.value_dirty
@@ -68,7 +196,7 @@ end
     return ig.GetColorU32(ig.ImVec4(r, g, b, a))
 end
 
-function draw_sketch!(sketch, selected, hovered, dragging, tool, line_start, circle_center, center, scale, stats_ref, report_ref, residuals_ref, solve_time_ms)
+function draw_sketch!(sketch, measurements, selected, hovered, measure_selected, measure_hovered, measure_dragging, dragging, tool, line_start, circle_center, measure_start, center, scale, stats_ref, report_ref, residuals_ref, solve_time_ms)
     vp = unsafe_load(ig.GetMainViewport())
     ig.SetNextWindowPos((vp.Pos.x, vp.Pos.y))
     ig.SetNextWindowSize((vp.Size.x, vp.Size.y))
@@ -102,6 +230,7 @@ function draw_sketch!(sketch, selected, hovered, dragging, tool, line_start, cir
     scale_f = Cfloat(scale[])
     origin = ig.ImVec2(canvas_pos.x + canvas_size.x * 0.5f0, canvas_pos.y + canvas_size.y * 0.5f0)
     mouse = ig.GetMousePos()
+    world_mouse = screen_to_world(mouse, origin, center[], scale_f)
     io = unsafe_load(ig.GetIO())
 
     if is_hovered && ig.IsMouseDown(1)
@@ -133,11 +262,50 @@ function draw_sketch!(sketch, selected, hovered, dragging, tool, line_start, cir
         end
     end
 
+    measure_hovered[] = 0
+    best_d2 = 64.0f0
+    for (idx, measurement) in enumerate(measurements)
+        p1 = point_xy(sketch, measurement.p1)
+        p2 = point_xy(sketch, measurement.p2)
+        pts = dimension_line_points(p1, p2, origin, center[], scale_f, measurement.offset)
+        pts === nothing && continue
+        s1o, s2o = pts
+        d2 = dist2_point_segment(mouse, s1o, s2o)
+        dx = p2[1] - p1[1]
+        dy = p2[2] - p1[2]
+        len = sqrt(dx * dx + dy * dy)
+        if len > 1e-9
+            label = @sprintf("%.3f", len)
+            text_size = ig.CalcTextSize(label)
+            mid = ig.ImVec2((s1o.x + s2o.x) * 0.5f0, (s1o.y + s2o.y) * 0.5f0)
+            minx = mid.x - text_size.x * 0.5f0
+            maxx = mid.x + text_size.x * 0.5f0
+            miny = mid.y - text_size.y * 0.5f0
+            maxy = mid.y + text_size.y * 0.5f0
+            if mouse.x >= minx && mouse.x <= maxx && mouse.y >= miny && mouse.y <= maxy
+                d2 = 0.0f0
+            end
+        end
+        if d2 < best_d2
+            best_d2 = d2
+            measure_hovered[] = idx
+        end
+    end
+
     if is_hovered && ig.IsMouseClicked(0)
         wx, wy = screen_to_world(mouse, origin, center[], scale_f)
         if tool[] == :select
-            selected[] = hovered[]
-            dragging[] = hovered[]
+            if measure_hovered[] != 0
+                measure_selected[] = measure_hovered[]
+                measure_dragging[] = measure_hovered[]
+                selected[] = 0
+                dragging[] = 0
+            else
+                measure_selected[] = 0
+                measure_dragging[] = 0
+                selected[] = hovered[]
+                dragging[] = hovered[]
+            end
         elseif tool[] == :point
             p = CADConstraints.add_point!(sketch, wx, wy)
             selected[] = p
@@ -162,6 +330,28 @@ function draw_sketch!(sketch, selected, hovered, dragging, tool, line_start, cir
                 circle_center[] = 0
                 solve_and_update!(sketch, stats_ref, report_ref, residuals_ref, solve_time_ms)
             end
+        elseif tool[] == :measure
+            if hovered[] == 0
+                measure_start[] = 0
+            elseif measure_start[] == 0
+                measure_start[] = hovered[]
+            elseif hovered[] != measure_start[]
+                offset = 20.0 / scale_f
+                push!(measurements, Measurement(measure_start[], hovered[], offset))
+                selected[] = hovered[]
+                measure_start[] = 0
+            end
+        end
+    end
+    if tool[] == :select && measure_dragging[] != 0
+        if ig.IsMouseDown(0)
+            if io.MouseDelta.x != 0 || io.MouseDelta.y != 0
+                m = measurements[measure_dragging[]]
+                delta = measurement_offset_delta(point_xy(sketch, m.p1), point_xy(sketch, m.p2), scale_f, io.MouseDelta)
+                measurements[measure_dragging[]] = Measurement(m.p1, m.p2, m.offset + delta)
+            end
+        else
+            measure_dragging[] = 0
         end
     end
     if tool[] == :select && dragging[] != 0
@@ -205,6 +395,19 @@ function draw_sketch!(sketch, selected, hovered, dragging, tool, line_start, cir
         ig.AddCircle(draw_list, center_p, r, color_u32(0.30f0, 0.80f0, 0.90f0), 64, 2.0f0)
     end
 
+    for (idx, measurement) in enumerate(measurements)
+        active = idx == measure_selected[] || idx == measure_hovered[]
+        color = active ? color_u32(0.95f0, 0.80f0, 0.25f0) : color_u32(0.85f0, 0.85f0, 0.25f0)
+        draw_dimension!(draw_list, point_xy(sketch, measurement.p1), point_xy(sketch, measurement.p2),
+                        origin, center[], scale_f, color, measurement.offset)
+    end
+    if tool[] == :measure && measure_start[] != 0
+        preview_offset = 20.0 / scale_f
+        draw_dimension!(draw_list, point_xy(sketch, measure_start[]), world_mouse,
+                        origin, center[], scale_f, color_u32(0.85f0, 0.85f0, 0.25f0),
+                        preview_offset)
+    end
+
     for idx in 1:point_count(sketch)
         sp = world_to_screen(point_xy(sketch, idx), origin, center[], scale_f)
         if idx == selected[]
@@ -237,12 +440,12 @@ function tool_button(label, key, tool, size)
     return clicked
 end
 
-function draw_toolbar!(tool, line_start, circle_center, dragging)
+function draw_toolbar!(tool, line_start, circle_center, measure_start, measure_dragging, dragging)
     ig.SetNextWindowPos((10.0f0, 10.0f0), ig.ImGuiCond_FirstUseEver)
     ig.SetNextWindowSize((180.0f0, 0.0f0), ig.ImGuiCond_FirstUseEver)
     flags = ig.ImGuiWindowFlags_AlwaysAutoResize
     ig.Begin("Tools", C_NULL, flags)
-    labels = ("Select", "Point", "Line", "Circle")
+    labels = ("Select", "Point", "Line", "Circle", "Measure")
     max_w = 0.0f0
     max_h = 0.0f0
     for label in labels
@@ -268,10 +471,14 @@ function draw_toolbar!(tool, line_start, circle_center, dragging)
         changed = tool_button("Line", :line, tool, button_size) || changed
         ig.TableNextColumn()
         changed = tool_button("Circle", :circle, tool, button_size) || changed
+        ig.TableNextColumn()
+        changed = tool_button("Measure", :measure, tool, button_size) || changed
         ig.EndTable()
         if changed
             line_start[] = 0
             circle_center[] = 0
+            measure_start[] = 0
+            measure_dragging[] = 0
             dragging[] = 0
         end
     end
@@ -348,7 +555,7 @@ function constraint_label(constraint, sketch)
     end
 end
 
-function draw_selection_panel!(sketch, selected, residuals)
+function draw_selection_panel!(sketch, selected, measure_selected, measurements, residuals)
     vp = unsafe_load(ig.GetMainViewport())
     padding = 12.0f0
     ig.SetNextWindowPos((vp.Pos.x + vp.Size.x - padding, vp.Pos.y + padding),
@@ -389,6 +596,20 @@ function draw_selection_panel!(sketch, selected, residuals)
     end
 
     ig.Separator()
+    if measure_selected[] != 0
+        m = measurements[measure_selected[]]
+        p1 = m.p1
+        p2 = m.p2
+        x1, y1 = point_xy(sketch, p1)
+        x2, y2 = point_xy(sketch, p2)
+        dx = x2 - x1
+        dy = y2 - y1
+        dist = sqrt(dx * dx + dy * dy)
+        ig.TextUnformatted(@sprintf("Measurement m%d", measure_selected[]))
+        ig.TextUnformatted(@sprintf("points: p%d-p%d", p1, p2))
+        ig.TextUnformatted(@sprintf("value: %.3f", dist))
+        ig.Separator()
+    end
     ig.TextUnformatted("Constraints")
     if ig.BeginChild("constraints", (0.0f0, 0.0f0), true)
         for (idx, constraint) in enumerate(sketch.constraints)
@@ -453,7 +674,6 @@ function run(; window_size=(1280, 720), window_title="CADSketchUI")
     d41 = sqrt(dx41 * dx41 + dy41 * dy41)
     d35 = sqrt(dx35 * dx35 + dy35 * dy35)
     push!(sketch, CADConstraints.Distance(p1, p2, d12))
-    push!(sketch, CADConstraints.Distance(p1, p2, d12 * 1.2))
     push!(sketch, CADConstraints.Distance(p2, p3, d23))
     push!(sketch, CADConstraints.Distance(p3, p4, d34))
     push!(sketch, CADConstraints.Distance(p3, p5, d35))
@@ -474,14 +694,19 @@ function run(; window_size=(1280, 720), window_title="CADSketchUI")
     tool = Ref(:select)
     line_start = Ref(0)
     circle_center = Ref(0)
+    measure_start = Ref(0)
+    measurements = Measurement[]
+    measure_selected = Ref(0)
+    measure_hovered = Ref(0)
+    measure_dragging = Ref(0)
     center = Ref((0.0, 0.0))
     scale = Ref(80.0)
 
     ig.render(ctx; window_size=window_size, window_title=window_title) do
-        draw_sketch!(sketch, selected, hovered, dragging, tool, line_start, circle_center, center, scale, stats_ref, report_ref, residuals_ref, solve_time_ms)
-        draw_toolbar!(tool, line_start, circle_center, dragging)
+        draw_sketch!(sketch, measurements, selected, hovered, measure_selected, measure_hovered, measure_dragging, dragging, tool, line_start, circle_center, measure_start, center, scale, stats_ref, report_ref, residuals_ref, solve_time_ms)
+        draw_toolbar!(tool, line_start, circle_center, measure_start, measure_dragging, dragging)
         draw_status_panel!(stats_ref[], report_ref[], solve_time_ms[])
-        draw_selection_panel!(sketch, selected, residuals_ref[])
+        draw_selection_panel!(sketch, selected, measure_selected, measurements, residuals_ref[])
     end
     return nothing
 end
