@@ -52,10 +52,10 @@ version = "1.11.0"
 
 [[deps.SparseLNNS]]
 deps = ["LinearAlgebra", "Printf", "SparseArrays"]
-git-tree-sha1 = "d70f1d7e943e356c3e9bf82143cf8916705dade6"
+git-tree-sha1 = "b23c1a167572d56d7436fcb57236c561a97293ea"
 repo-rev = "master"
 repo-subdir = "SparseLNNS"
-repo-url = "https://github.com/angeris/SparseLNNS.jl.git"
+repo-url = "https://github.com/angeris/CADExperiments.jl.git"
 uuid = "5f866e5d-c780-4b8c-babf-162a06d3e5e3"
 version = "0.1.0"
 

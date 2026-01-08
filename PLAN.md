@@ -17,7 +17,7 @@ Pick one of these and stick to it:
 2) **Git submodule for SparseLNNS (explicit external dep):**
    - Add `SparseLNNS` as a git submodule and use `Pkg.develop(path=".../SparseLNNS")`.
 3) **Git URL dependency with subdir (no submodule):**
-   - Use `Pkg.add(PackageSpec(url="https://github.com/angeris/SparseLNNS.jl.git", subdir="SparseLNNS"))`.
+   - Use `Pkg.add(PackageSpec(url="https://github.com/angeris/CADExperiments.jl.git", subdir="SparseLNNS"))`.
 
 ## Steps (after choosing dependency strategy)
 1) Move the existing SparseLNNS package into `SparseLNNS/`.

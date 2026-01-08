@@ -16,10 +16,10 @@ version = "1.0.9+0"
 
 [[deps.CADConstraints]]
 deps = ["SparseArrays", "SparseLNNS"]
-git-tree-sha1 = "ee398b86f7a5608bc622c2338d85c00e0dd35d6b"
+git-tree-sha1 = "6c908fccaf78fbcb639bf651b69d97c6acf717ad"
 repo-rev = "master"
 repo-subdir = "CADConstraints"
-repo-url = "https://github.com/angeris/SparseLNNS.jl.git"
+repo-url = "https://github.com/angeris/CADExperiments.jl.git"
 uuid = "8e806ec7-fa68-4964-83a1-12fcd9f6efd6"
 version = "0.1.0"
 
@@ -273,7 +273,7 @@ deps = ["LinearAlgebra", "Printf", "SparseArrays"]
 git-tree-sha1 = "b23c1a167572d56d7436fcb57236c561a97293ea"
 repo-rev = "master"
 repo-subdir = "SparseLNNS"
-repo-url = "https://github.com/angeris/SparseLNNS.jl.git"
+repo-url = "https://github.com/angeris/CADExperiments.jl.git"
 uuid = "5f866e5d-c780-4b8c-babf-162a06d3e5e3"
 version = "0.1.0"
 
