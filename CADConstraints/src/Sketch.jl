@@ -2,6 +2,7 @@
     Sketch()
 
 Container for points, shapes, constraints, and cached solver state.
+Includes an origin point fixed at (0, 0).
 """
 mutable struct Sketch
     x::Vector{Float64}
@@ -31,7 +32,10 @@ end
 
 function Sketch()
     problem, state, work = empty_state_work()
-    return Sketch(Float64[], Circle[], Arc[], Line[], Constraint[], true, false, problem, state, work)
+    sketch = Sketch(Float64[], Circle[], Arc[], Line[], Constraint[], true, false, problem, state, work)
+    origin = add_point!(sketch, 0.0, 0.0)
+    push!(sketch, FixedPoint(origin, 0.0, 0.0))
+    return sketch
 end
 
 @inline function point_indices(p)

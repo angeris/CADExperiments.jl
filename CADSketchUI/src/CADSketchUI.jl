@@ -243,6 +243,12 @@ end
     if length(app.sketch.constraints) <= 1
         return nothing
     end
+    constraint = app.sketch.constraints[idx]
+    if constraint isa CADConstraints.FixedPoint
+        if constraint.p == 1 && constraint.x == 0.0 && constraint.y == 0.0
+            return nothing
+        end
+    end
     deleteat!(app.sketch.constraints, idx)
     CADConstraints.mark_structure_dirty!(app.sketch)
     app.constraint_selected = 0
@@ -433,7 +439,7 @@ function draw_sketch!(app)
                 app.measure_selected = 0
                 app.measure_dragging = 0
                 app.selected = app.hovered
-                app.dragging = app.hovered
+                app.dragging = app.hovered == 1 ? 0 : app.hovered
             end
         elseif app.tool == :point
             p = CADConstraints.add_point!(sketch, wx, wy)
@@ -496,7 +502,9 @@ function draw_sketch!(app)
         end
     end
     if app.tool == :select && app.dragging != 0 && app.measure_editing == 0
-        if ig.IsMouseDown(0)
+        if app.dragging == 1
+            app.dragging = 0
+        elseif ig.IsMouseDown(0)
             if io.MouseDelta.x != 0 || io.MouseDelta.y != 0
                 wx, wy = screen_to_world(mouse, origin, app.center, scale_f)
                 CADConstraints.set_point!(sketch, app.dragging, wx, wy)
@@ -588,14 +596,26 @@ function draw_sketch!(app)
 
     for idx in 1:point_count(sketch)
         sp = world_to_screen(point_xy(sketch, idx), origin, app.center, scale_f)
-        if idx == app.selected
-            color = color_u32(0.95f0, 0.70f0, 0.20f0)
-        elseif idx == app.hovered
-            color = color_u32(0.80f0, 0.80f0, 0.25f0)
+        if idx == 1
+            if idx == app.selected || idx == app.hovered
+                color = color_u32(0.98f0, 0.55f0, 0.55f0)
+            else
+                color = color_u32(0.90f0, 0.30f0, 0.30f0)
+            end
+            ig.AddCircleFilled(draw_list, sp, 5.0f0, color)
+            cross = 6.0f0
+            ig.AddLine(draw_list, ig.ImVec2(sp.x - cross, sp.y), ig.ImVec2(sp.x + cross, sp.y), color, 1.5f0)
+            ig.AddLine(draw_list, ig.ImVec2(sp.x, sp.y - cross), ig.ImVec2(sp.x, sp.y + cross), color, 1.5f0)
         else
-            color = color_u32(0.90f0, 0.90f0, 0.90f0)
+            if idx == app.selected
+                color = color_u32(0.95f0, 0.70f0, 0.20f0)
+            elseif idx == app.hovered
+                color = color_u32(0.80f0, 0.80f0, 0.25f0)
+            else
+                color = color_u32(0.90f0, 0.90f0, 0.90f0)
+            end
+            ig.AddCircleFilled(draw_list, sp, 4.0f0, color)
         end
-        ig.AddCircleFilled(draw_list, sp, 4.0f0, color)
     end
 
     ig.End()
@@ -779,7 +799,11 @@ function draw_selection_panel!(app)
         ig.TextUnformatted("Selected: none")
     else
         x, y = point_xy(sketch, app.selected)
-        ig.TextUnformatted(@sprintf("Selected p%d", app.selected))
+        if app.selected == 1
+            ig.TextUnformatted("Selected origin (p1)")
+        else
+            ig.TextUnformatted(@sprintf("Selected p%d", app.selected))
+        end
         ig.TextUnformatted(@sprintf("pos: (%.3f, %.3f)", x, y))
         for (idx, line) in enumerate(sketch.lines)
             if line_has_point(line, app.selected)
