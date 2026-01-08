@@ -68,7 +68,7 @@ end
     return ig.GetColorU32(ig.ImVec4(r, g, b, a))
 end
 
-function draw_sketch!(sketch, selected, hovered, dragging, center, scale, stats_ref, report_ref, residuals_ref, solve_time_ms)
+function draw_sketch!(sketch, selected, hovered, dragging, tool, line_start, circle_center, center, scale, stats_ref, report_ref, residuals_ref, solve_time_ms)
     vp = unsafe_load(ig.GetMainViewport())
     ig.SetNextWindowPos((vp.Pos.x, vp.Pos.y))
     ig.SetNextWindowSize((vp.Size.x, vp.Size.y))
@@ -134,10 +134,37 @@ function draw_sketch!(sketch, selected, hovered, dragging, center, scale, stats_
     end
 
     if is_hovered && ig.IsMouseClicked(0)
-        selected[] = hovered[]
-        dragging[] = hovered[]
+        wx, wy = screen_to_world(mouse, origin, center[], scale_f)
+        if tool[] == :select
+            selected[] = hovered[]
+            dragging[] = hovered[]
+        elseif tool[] == :point
+            p = CADConstraints.add_point!(sketch, wx, wy)
+            selected[] = p
+            solve_and_update!(sketch, stats_ref, report_ref, residuals_ref, solve_time_ms)
+        elseif tool[] == :line
+            if line_start[] == 0
+                line_start[] = hovered[] != 0 ? hovered[] : CADConstraints.add_point!(sketch, wx, wy)
+            else
+                p2 = hovered[] != 0 ? hovered[] : CADConstraints.add_point!(sketch, wx, wy)
+                push!(sketch, CADConstraints.Line(line_start[], p2))
+                selected[] = p2
+                line_start[] = 0
+                solve_and_update!(sketch, stats_ref, report_ref, residuals_ref, solve_time_ms)
+            end
+        elseif tool[] == :circle
+            if circle_center[] == 0
+                circle_center[] = hovered[] != 0 ? hovered[] : CADConstraints.add_point!(sketch, wx, wy)
+            else
+                rim = hovered[] != 0 ? hovered[] : CADConstraints.add_point!(sketch, wx, wy)
+                push!(sketch, CADConstraints.Circle(circle_center[], rim))
+                selected[] = rim
+                circle_center[] = 0
+                solve_and_update!(sketch, stats_ref, report_ref, residuals_ref, solve_time_ms)
+            end
+        end
     end
-    if dragging[] != 0
+    if tool[] == :select && dragging[] != 0
         if ig.IsMouseDown(0)
             if io.MouseDelta.x != 0 || io.MouseDelta.y != 0
                 wx, wy = screen_to_world(mouse, origin, center[], scale_f)
@@ -155,6 +182,29 @@ function draw_sketch!(sketch, selected, hovered, dragging, center, scale, stats_
         ig.AddLine(draw_list, p1, p2, color_u32(0.55f0, 0.65f0, 0.75f0), 2.0f0)
     end
 
+    for circle in sketch.circles
+        c = world_to_screen(point_xy(sketch, circle.center), origin, center[], scale_f)
+        r = world_to_screen(point_xy(sketch, circle.rim), origin, center[], scale_f)
+        dx = r.x - c.x
+        dy = r.y - c.y
+        radius = sqrt(dx * dx + dy * dy)
+        if radius > 0.5f0
+            ig.AddCircle(draw_list, c, radius, color_u32(0.55f0, 0.65f0, 0.75f0), 64, 2.0f0)
+        end
+    end
+
+    if tool[] == :line && line_start[] != 0
+        p1 = world_to_screen(point_xy(sketch, line_start[]), origin, center[], scale_f)
+        p2 = ig.GetMousePos()
+        ig.AddLine(draw_list, p1, p2, color_u32(0.30f0, 0.80f0, 0.90f0), 2.0f0)
+    elseif tool[] == :circle && circle_center[] != 0
+        center_p = world_to_screen(point_xy(sketch, circle_center[]), origin, center[], scale_f)
+        dx = mouse.x - center_p.x
+        dy = mouse.y - center_p.y
+        r = sqrt(dx * dx + dy * dy)
+        ig.AddCircle(draw_list, center_p, r, color_u32(0.30f0, 0.80f0, 0.90f0), 64, 2.0f0)
+    end
+
     for idx in 1:point_count(sketch)
         sp = world_to_screen(point_xy(sketch, idx), origin, center[], scale_f)
         if idx == selected[]
@@ -170,7 +220,24 @@ function draw_sketch!(sketch, selected, hovered, dragging, center, scale, stats_
     ig.End()
 end
 
-function draw_toolbar!()
+function tool_button(label, key, tool, size)
+    active = tool[] == key
+    if active
+        ig.PushStyleColor(ig.ImGuiCol_Button, ig.ImVec4(0.25f0, 0.55f0, 0.85f0, 1.0f0))
+        ig.PushStyleColor(ig.ImGuiCol_ButtonHovered, ig.ImVec4(0.30f0, 0.60f0, 0.90f0, 1.0f0))
+        ig.PushStyleColor(ig.ImGuiCol_ButtonActive, ig.ImVec4(0.20f0, 0.50f0, 0.80f0, 1.0f0))
+    end
+    clicked = ig.Button(label, size)
+    if active
+        ig.PopStyleColor(3)
+    end
+    if clicked
+        tool[] = key
+    end
+    return clicked
+end
+
+function draw_toolbar!(tool, line_start, circle_center, dragging)
     ig.SetNextWindowPos((10.0f0, 10.0f0), ig.ImGuiCond_FirstUseEver)
     ig.SetNextWindowSize((180.0f0, 0.0f0), ig.ImGuiCond_FirstUseEver)
     flags = ig.ImGuiWindowFlags_AlwaysAutoResize
@@ -194,22 +261,19 @@ function draw_toolbar!()
         ig.TableSetupColumn("col1", ig.ImGuiTableColumnFlags_WidthFixed, button_w)
         ig.TableSetupColumn("col2", ig.ImGuiTableColumnFlags_WidthFixed, button_w)
         ig.TableNextColumn()
-        if ig.Button("Select", button_size)
-            @info "Tool: Select"
-        end
+        changed = tool_button("Select", :select, tool, button_size)
         ig.TableNextColumn()
-        if ig.Button("Point", button_size)
-            @info "Tool: Point"
-        end
+        changed = tool_button("Point", :point, tool, button_size) || changed
         ig.TableNextColumn()
-        if ig.Button("Line", button_size)
-            @info "Tool: Line"
-        end
+        changed = tool_button("Line", :line, tool, button_size) || changed
         ig.TableNextColumn()
-        if ig.Button("Circle", button_size)
-            @info "Tool: Circle"
-        end
+        changed = tool_button("Circle", :circle, tool, button_size) || changed
         ig.EndTable()
+        if changed
+            line_start[] = 0
+            circle_center[] = 0
+            dragging[] = 0
+        end
     end
     ig.PopStyleVar()
     ig.End()
@@ -227,9 +291,19 @@ function draw_status_panel!(stats, report, solve_time_ms)
             ig.ImGuiWindowFlags_NoTitleBar
     ig.Begin("Status", C_NULL, flags)
 
-    ok = stats.status == :converged
-    color = ok ? ig.ImVec4(0.20f0, 0.80f0, 0.35f0, 1.0f0) : ig.ImVec4(0.90f0, 0.25f0, 0.25f0, 1.0f0)
-    ig.TextColored(color, ok ? "Converged" : "Not Converged")
+    converged = stats.status == :converged
+    conflicted = report.conflicted
+    if converged && conflicted
+        color = ig.ImVec4(0.95f0, 0.65f0, 0.20f0, 1.0f0)
+        label = "Converged (conflict)"
+    elseif converged
+        color = ig.ImVec4(0.20f0, 0.80f0, 0.35f0, 1.0f0)
+        label = "Converged"
+    else
+        color = ig.ImVec4(0.90f0, 0.25f0, 0.25f0, 1.0f0)
+        label = "Not Converged"
+    end
+    ig.TextColored(color, label)
     ig.TextUnformatted(@sprintf("iters: %d", stats.iters))
     ig.TextUnformatted(@sprintf("cost: %.3e", stats.cost))
     ig.TextUnformatted(@sprintf("residual: %.3e", report.residual_norm))
@@ -336,12 +410,12 @@ function draw_selection_panel!(sketch, selected, residuals)
 end
 
 """
-    run(; window_size=(640, 480), window_title="CADSketchUI")
+    run(; window_size=(1280, 720), window_title="CADSketchUI")
 
 Open a minimal sketch window with a canvas and a placeholder sketch.
 This is the first UI checkpoint (canvas + selection + pan/zoom).
 """
-function run(; window_size=(640, 480), window_title="CADSketchUI")
+function run(; window_size=(1280, 720), window_title="CADSketchUI")
     ig.set_backend(:GlfwOpenGL3)
     ctx = ig.CreateContext()
 
@@ -379,6 +453,7 @@ function run(; window_size=(640, 480), window_title="CADSketchUI")
     d41 = sqrt(dx41 * dx41 + dy41 * dy41)
     d35 = sqrt(dx35 * dx35 + dy35 * dy35)
     push!(sketch, CADConstraints.Distance(p1, p2, d12))
+    push!(sketch, CADConstraints.Distance(p1, p2, d12 * 1.2))
     push!(sketch, CADConstraints.Distance(p2, p3, d23))
     push!(sketch, CADConstraints.Distance(p3, p4, d34))
     push!(sketch, CADConstraints.Distance(p3, p5, d35))
@@ -395,13 +470,16 @@ function run(; window_size=(640, 480), window_title="CADSketchUI")
     end
     selected = Ref(0)
     hovered = Ref(0)
+    dragging = Ref(0)
+    tool = Ref(:select)
+    line_start = Ref(0)
+    circle_center = Ref(0)
     center = Ref((0.0, 0.0))
     scale = Ref(80.0)
 
-    dragging = Ref(0)
     ig.render(ctx; window_size=window_size, window_title=window_title) do
-        draw_sketch!(sketch, selected, hovered, dragging, center, scale, stats_ref, report_ref, residuals_ref, solve_time_ms)
-        draw_toolbar!()
+        draw_sketch!(sketch, selected, hovered, dragging, tool, line_start, circle_center, center, scale, stats_ref, report_ref, residuals_ref, solve_time_ms)
+        draw_toolbar!(tool, line_start, circle_center, dragging)
         draw_status_panel!(stats_ref[], report_ref[], solve_time_ms[])
         draw_selection_panel!(sketch, selected, residuals_ref[])
     end
