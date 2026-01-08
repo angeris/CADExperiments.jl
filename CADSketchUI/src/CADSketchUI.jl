@@ -52,6 +52,7 @@ mutable struct AppState
     line_start::Int
     circle_center::Int
     measure_start::Int
+    coincident_start::Int
     measure_selected::Int
     measure_hovered::Int
     measure_dragging::Int
@@ -103,6 +104,26 @@ end
     n = findfirst(==(0x00), buf)
     n === nothing && (n = length(buf) + 1)
     return String(buf[1:(n - 1)])
+end
+
+@inline function ensure_origin!(sketch)
+    if point_count(sketch) == 0
+        CADConstraints.add_point!(sketch, 0.0, 0.0)
+    else
+        x1, y1 = point_xy(sketch, 1)
+        if x1 != 0.0 || y1 != 0.0
+            CADConstraints.set_point!(sketch, 1, 0.0, 0.0)
+        end
+    end
+    for constraint in sketch.constraints
+        if constraint isa CADConstraints.FixedPoint
+            if constraint.p == 1 && constraint.x == 0.0 && constraint.y == 0.0
+                return nothing
+            end
+        end
+    end
+    push!(sketch, CADConstraints.FixedPoint(1, 0.0, 0.0))
+    return nothing
 end
 
 @inline function dist2_point_segment(p::ig.ImVec2, a::ig.ImVec2, b::ig.ImVec2)
@@ -488,6 +509,17 @@ function draw_sketch!(app)
                 push!(measurements, Measurement(circle.center, circle.rim, offset))
                 app.measure_start = 0
             end
+        elseif app.tool == :coincident
+            if app.hovered == 0
+                app.coincident_start = 0
+            elseif app.coincident_start == 0
+                app.coincident_start = app.hovered
+            elseif app.hovered != app.coincident_start
+                push!(sketch, CADConstraints.Coincident(app.coincident_start, app.hovered))
+                app.selected = app.hovered
+                app.coincident_start = 0
+                solve_and_update!(app)
+            end
         end
     end
     if app.tool == :select && app.measure_dragging != 0 && app.measure_editing == 0
@@ -593,6 +625,11 @@ function draw_sketch!(app)
                         origin, app.center, scale_f, color_u32(0.85f0, 0.85f0, 0.25f0),
                         preview_offset)
     end
+    if app.tool == :coincident && app.coincident_start != 0
+        p = point_xy(sketch, app.coincident_start)
+        sp = world_to_screen(p, origin, app.center, scale_f)
+        ig.AddLine(draw_list, sp, mouse, color_u32(0.85f0, 0.35f0, 0.85f0), 1.5f0)
+    end
 
     for idx in 1:point_count(sketch)
         sp = world_to_screen(point_xy(sketch, idx), origin, app.center, scale_f)
@@ -642,6 +679,7 @@ function reset_tool_state!(app)
     app.line_start = 0
     app.circle_center = 0
     app.measure_start = 0
+    app.coincident_start = 0
     app.measure_dragging = 0
     app.measure_editing = 0
     app.measure_label_hot = 0
@@ -655,7 +693,7 @@ function draw_toolbar!(app)
     ig.SetNextWindowSize((180.0f0, 0.0f0), ig.ImGuiCond_FirstUseEver)
     flags = ig.ImGuiWindowFlags_AlwaysAutoResize
     ig.Begin("Tools", C_NULL, flags)
-    labels = ("Select", "Point", "Line", "Circle", "Measure")
+    labels = ("Select", "Point", "Line", "Circle", "Measure", "Coincident")
     max_w = 0.0f0
     max_h = 0.0f0
     for label in labels
@@ -683,6 +721,8 @@ function draw_toolbar!(app)
         changed = tool_button("Circle", :circle, app, button_size) || changed
         ig.TableNextColumn()
         changed = tool_button("Measure", :measure, app, button_size) || changed
+        ig.TableNextColumn()
+        changed = tool_button("Coincident", :coincident, app, button_size) || changed
         ig.EndTable()
         if changed
             reset_tool_state!(app)
@@ -865,6 +905,7 @@ function run(; window_size=(1280, 720), window_title="CADSketchUI")
     ctx = ig.CreateContext()
 
     sketch = CADConstraints.Sketch()
+    ensure_origin!(sketch)
     x1, y1 = -2.0, 0.0
     x2, y2 = 2.0, 0.0
     x3, y3 = 2.0, 1.5
@@ -919,6 +960,7 @@ function run(; window_size=(1280, 720), window_title="CADSketchUI")
         0,
         0,
         :select,
+        0,
         0,
         0,
         0,
