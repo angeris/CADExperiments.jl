@@ -36,11 +36,31 @@ end
     return (sketch.x[i], sketch.x[i + 1])
 end
 
-@inline function solve_and_update!(sketch, stats_ref, report_ref, solve_time_ms)
+@inline function constraint_residuals!(out, sketch)
+    resize!(out, length(sketch.constraints))
+    if sketch.value_dirty
+        sketch.problem.r!(sketch.work.r, sketch.x)
+    end
+    offset = 0
+    for (idx, constraint) in enumerate(sketch.constraints)
+        rows = CADConstraints.constraint_rows(constraint)
+        sumsq = 0.0
+        @inbounds for j in 1:rows
+            r = sketch.work.r[offset + j]
+            sumsq += r * r
+        end
+        offset += rows
+        out[idx] = sqrt(sumsq)
+    end
+    return nothing
+end
+
+@inline function solve_and_update!(sketch, stats_ref, report_ref, residuals_ref, solve_time_ms)
     t0 = time_ns()
     stats_ref[] = CADConstraints.solve!(sketch)
     solve_time_ms[] = (time_ns() - t0) / 1e6
     report_ref[] = CADConstraints.conflicts(sketch, stats_ref[])
+    constraint_residuals!(residuals_ref[], sketch)
     return nothing
 end
 
@@ -48,7 +68,7 @@ end
     return ig.GetColorU32(ig.ImVec4(r, g, b, a))
 end
 
-function draw_sketch!(sketch, selected, hovered, dragging, center, scale, stats_ref, report_ref, solve_time_ms)
+function draw_sketch!(sketch, selected, hovered, dragging, center, scale, stats_ref, report_ref, residuals_ref, solve_time_ms)
     vp = unsafe_load(ig.GetMainViewport())
     ig.SetNextWindowPos((vp.Pos.x, vp.Pos.y))
     ig.SetNextWindowSize((vp.Size.x, vp.Size.y))
@@ -122,7 +142,7 @@ function draw_sketch!(sketch, selected, hovered, dragging, center, scale, stats_
             if io.MouseDelta.x != 0 || io.MouseDelta.y != 0
                 wx, wy = screen_to_world(mouse, origin, center[], scale_f)
                 CADConstraints.set_point!(sketch, dragging[], wx, wy)
-                solve_and_update!(sketch, stats_ref, report_ref, solve_time_ms)
+                solve_and_update!(sketch, stats_ref, report_ref, residuals_ref, solve_time_ms)
             end
         else
             dragging[] = 0
@@ -226,6 +246,95 @@ function draw_status_panel!(stats, report, solve_time_ms)
     ig.End()
 end
 
+@inline function line_has_point(line, p)
+    return line.p1 == p || line.p2 == p
+end
+
+function constraint_label(constraint, sketch)
+    if constraint isa CADConstraints.FixedPoint
+        return @sprintf("FixedPoint p%d (%.3f, %.3f)", constraint.p, constraint.x, constraint.y)
+    elseif constraint isa CADConstraints.Coincident
+        return @sprintf("Coincident p%d-p%d", constraint.p1, constraint.p2)
+    elseif constraint isa CADConstraints.Horizontal
+        return @sprintf("Horizontal l%d", constraint.line)
+    elseif constraint isa CADConstraints.Vertical
+        return @sprintf("Vertical l%d", constraint.line)
+    elseif constraint isa CADConstraints.Parallel
+        return @sprintf("Parallel l%d-l%d", constraint.line1, constraint.line2)
+    elseif constraint isa CADConstraints.Distance
+        return @sprintf("Distance p%d-p%d (%.3f)", constraint.p1, constraint.p2, constraint.d)
+    elseif constraint isa CADConstraints.Diameter
+        return @sprintf("Diameter c%d (%.3f)", constraint.circle, constraint.d)
+    elseif constraint isa CADConstraints.Normal
+        return @sprintf("Normal c%d-l%d", constraint.circle, constraint.line)
+    elseif constraint isa CADConstraints.CircleCoincident
+        return @sprintf("CircleCoincident c%d p%d", constraint.circle, constraint.p)
+    else
+        return String(nameof(typeof(constraint)))
+    end
+end
+
+function draw_selection_panel!(sketch, selected, residuals)
+    vp = unsafe_load(ig.GetMainViewport())
+    padding = 12.0f0
+    ig.SetNextWindowPos((vp.Pos.x + vp.Size.x - padding, vp.Pos.y + padding),
+                        ig.ImGuiCond_Always, (1.0f0, 0.0f0))
+    max_text_w = 0.0f0
+    max_label_w = 0.0f0
+    max_res_w = 0.0f0
+    if !isempty(residuals)
+        for (idx, constraint) in enumerate(sketch.constraints)
+            label = @sprintf("%d. %s", idx, constraint_label(constraint, sketch))
+            res = @sprintf("r=%.3e", residuals[idx])
+            sz = ig.CalcTextSize(label)
+            rsz = ig.CalcTextSize(res)
+            max_text_w = max(max_text_w, sz.x)
+            max_label_w = max(max_label_w, sz.x)
+            max_res_w = max(max_res_w, rsz.x)
+            max_text_w = max(max_text_w, sz.x + rsz.x + 12.0f0)
+        end
+    end
+    line_h = ig.GetTextLineHeightWithSpacing()
+    desired_w = max(max_text_w + 32.0f0, 220.0f0)
+    desired_h = clamp((length(sketch.constraints) + 6) * line_h, 160.0f0, 360.0f0)
+    ig.SetNextWindowSize((desired_w, desired_h), ig.ImGuiCond_FirstUseEver)
+    flags = ig.ImGuiWindowFlags_NoMove
+    ig.Begin("Selection", C_NULL, flags)
+
+    if selected[] == 0
+        ig.TextUnformatted("Selected: none")
+    else
+        x, y = point_xy(sketch, selected[])
+        ig.TextUnformatted(@sprintf("Selected p%d", selected[]))
+        ig.TextUnformatted(@sprintf("pos: (%.3f, %.3f)", x, y))
+        for (idx, line) in enumerate(sketch.lines)
+            if line_has_point(line, selected[])
+                ig.TextUnformatted(@sprintf("line l%d: p%d-p%d", idx, line.p1, line.p2))
+            end
+        end
+    end
+
+    ig.Separator()
+    ig.TextUnformatted("Constraints")
+    if ig.BeginChild("constraints", (0.0f0, 0.0f0), true)
+        for (idx, constraint) in enumerate(sketch.constraints)
+            label = @sprintf("%d. %s", idx, constraint_label(constraint, sketch))
+            res = @sprintf("r=%.3e", residuals[idx])
+            line_start = ig.GetCursorPosX()
+            ig.SetCursorPosX(line_start)
+            ig.TextUnformatted(label)
+            res_w = ig.CalcTextSize(res).x
+            ig.SameLine()
+            res_x = line_start + max_label_w + 12.0f0 + (max_res_w - res_w)
+            ig.SetCursorPosX(res_x)
+            ig.TextUnformatted(res)
+        end
+        ig.EndChild()
+    end
+
+    ig.End()
+end
+
 """
     run(; window_size=(640, 480), window_title="CADSketchUI")
 
@@ -277,6 +386,8 @@ function run(; window_size=(640, 480), window_title="CADSketchUI")
     stats_ref = Ref(CADConstraints.solve!(sketch))
     solve_time_ms = Ref((time_ns() - t0) / 1e6)
     report_ref = Ref(CADConstraints.conflicts(sketch, stats_ref[]))
+    residuals_ref = Ref(Float64[])
+    constraint_residuals!(residuals_ref[], sketch)
     @info "Initial solve" iters=stats_ref[].iters status=stats_ref[].status cost=stats_ref[].cost
     for idx in 1:point_count(sketch)
         x, y = point_xy(sketch, idx)
@@ -289,9 +400,10 @@ function run(; window_size=(640, 480), window_title="CADSketchUI")
 
     dragging = Ref(0)
     ig.render(ctx; window_size=window_size, window_title=window_title) do
-        draw_sketch!(sketch, selected, hovered, dragging, center, scale, stats_ref, report_ref, solve_time_ms)
+        draw_sketch!(sketch, selected, hovered, dragging, center, scale, stats_ref, report_ref, residuals_ref, solve_time_ms)
         draw_toolbar!()
         draw_status_panel!(stats_ref[], report_ref[], solve_time_ms[])
+        draw_selection_panel!(sketch, selected, residuals_ref[])
     end
     return nothing
 end
